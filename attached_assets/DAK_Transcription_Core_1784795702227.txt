@@ -1,0 +1,393 @@
+================================================================
+DAK TRANSCRIPTION — FINALISED PLATFORM CORE
+================================================================
+
+Platform Name   : DAK Transcription
+Stack           : FastAPI + Jinja2 + HTMX + Supabase + Razorpay
+Max Duration    : 60 minutes per file
+Languages       : All global languages
+
+----------------------------------------------------------------
+FOUR CORE TOOLS
+----------------------------------------------------------------
+
+Tool            Input                   Output                  API
+--------------- ----------------------- ----------------------- ---------------------------
+Transcription   Audio / Video           Plain text              Whisper + Claude cleanup
+Subtitling      Audio / Video           SRT / VTT               Whisper (with timestamps)
+Captioning      Audio / Video           MP4 with burned-in      Whisper + FFmpeg
+                                        captions
+AI Dubbing      Audio / Video +         Dubbed MP4 / MP3        ElevenLabs Dubbing API
+                target language
+
+----------------------------------------------------------------
+FILE SUPPORT
+----------------------------------------------------------------
+
+Input formats   : MP4, MP3, WAV, MOV, MKV, M4A
+Output formats  : TXT, SRT, VTT, MP4, MP3
+
+----------------------------------------------------------------
+CREDIT PRICING
+----------------------------------------------------------------
+
+Feature         Charge/min      API cost/min    Margin
+--------------- --------------- --------------- ---------------
+Transcription   Rs. 5           Rs. 0.50        9x
+Subtitling      Rs. 8           Rs. 0.50        15x
+Captioning      Rs. 12          Rs. 0.50        ~20x
+AI Dubbing      Rs. 50          Rs. 8.40        6x
+
+60 minute file — worst case API cost to you : Rs. 504 (dubbing)
+60 minute file — charged to user            : Rs. 3,000
+Margin holds at scale.
+
+----------------------------------------------------------------
+API COST BREAKDOWN — IN RUPEES (at Rs. 84 per USD)
+----------------------------------------------------------------
+
+API                     Model           Cost/min (Rs.)
+----------------------- --------------- ---------------
+OpenAI                  Whisper         Rs. 0.50
+Deepgram                Nova-3          Rs. 0.50
+Deepgram                Nova-2          Rs. 0.36
+AssemblyAI              Best            Rs. 0.55
+AssemblyAI              Nano            Rs. 0.03
+ElevenLabs              Dubbing         Rs. 8.40
+
+Real job costs:
+
+Job             Whisper         Deepgram Nova-2 ElevenLabs Dub  Total (Whisper+Dub)
+--------------- --------------- --------------- --------------- -------------------
+5 min video     Rs. 2.50        Rs. 1.80        Rs. 42          Rs. 44.50
+30 min video    Rs. 15          Rs. 11          Rs. 252         Rs. 267
+60 min video    Rs. 30          Rs. 22          Rs. 504         Rs. 534
+
+----------------------------------------------------------------
+AI LAYER — WHICH API DOES WHAT
+----------------------------------------------------------------
+
+Job                     Model           Notes
+----------------------- --------------- ----------------------------------
+Transcription           Whisper         Primary. Deepgram Nova-2 fallback
+                                        for long files
+Transcript cleanup      Claude          Strict prompt — see System Prompts
+Subtitling              Whisper         Timestamps included in output
+                                        at no extra cost
+Captioning              Whisper+FFmpeg  FFmpeg burns subtitles into video
+                                        server-side — no extra API cost
+Dubbing                 ElevenLabs      Full pipeline — transcribes,
+                                        translates, and re-voices in one
+                                        single API call
+
+NOTE: Claude does NOT transcribe audio. Claude is only used
+      post-transcription for cleanup and translation tasks.
+
+----------------------------------------------------------------
+SYSTEM PROMPTS
+----------------------------------------------------------------
+
+1. WHISPER PROMPT PARAMETER (domain vocabulary hint)
+   Passed per job to reduce hallucination on domain-specific content.
+   Not a system prompt — it is a short string bias injected into Whisper.
+
+   General (default):
+   "Transcription. Clear speech. Accurate punctuation."
+
+   Legal content (if user selects legal domain):
+   "Legal document. Court hearing. Petitioner. Respondent. Advocate.
+   Affidavit. Deposition. Jurisdiction. High Court. Supreme Court."
+
+   Medical content (if user selects medical domain):
+   "Medical transcription. Patient. Diagnosis. Prescription.
+   Physician. Dosage. Clinical notes. Referral."
+
+   General business:
+   "Business meeting. Board. Agenda. Minutes. Quarterly. Revenue.
+   Stakeholder. Management. Strategy."
+
+   Rule: keep prompt under 100 words. Only include vocabulary
+   specific to the content — not full sentences.
+
+
+2. CLAUDE TRANSCRIPT CLEANUP PROMPT (system prompt)
+   Used after Whisper outputs raw text. Strict — no rewrites.
+
+   System:
+   "You are a transcript editor. Your only job is to fix punctuation,
+   remove filler words such as um, uh, you know, and like, and correct
+   obvious mishearing errors where the context makes the correct word
+   clear. Do not add any content that was not in the original. Do not
+   remove any content except filler words. Do not rephrase, summarise,
+   or restructure any sentence. Do not add headings, bullet points, or
+   formatting. Return only the corrected transcript as plain text and
+   nothing else."
+
+   User message format:
+   "Clean up the following transcript:
+
+   [RAW TRANSCRIPT TEXT]"
+
+
+3. CLAUDE TRANSLATION PROMPT (system prompt)
+   Used when user requests transcript translation before dubbing.
+
+   System:
+   "You are a professional translator. Translate the transcript below
+   into [TARGET LANGUAGE]. Preserve the meaning of every sentence
+   exactly. Do not add, remove, or summarise any content. Do not add
+   headings, notes, or explanations. Return only the translated
+   transcript as plain text and nothing else."
+
+   User message format:
+   "Translate the following transcript into [TARGET LANGUAGE]:
+
+   [TRANSCRIPT TEXT]"
+
+
+4. ELEVENLABS DUBBING
+   No system prompt required. ElevenLabs handles the full pipeline
+   internally — transcription, translation, and voice synthesis are
+   all managed by their API. No prompt access on the user side.
+
+
+HALLUCINATION RISK SUMMARY:
+
+Tool            Hallucinates?   Mitigation
+--------------- --------------- ----------------------------------
+Whisper         Yes — known     Use prompt parameter with domain
+                issue           vocabulary. Trim silence from
+                                audio before sending.
+Deepgram        No              Pure ASR — mishears, never invents
+AssemblyAI      No              Pure ASR — mishears, never invents
+Claude cleanup  Yes if loose    Strict system prompt — see above
+Claude translate Yes if loose   Strict system prompt — see above
+ElevenLabs      No              Specialized pipeline, no LLM risk
+
+----------------------------------------------------------------
+BACKGROUND JOB FLOW
+----------------------------------------------------------------
+
+1. User uploads file          -> Job created, credits held
+2. Worker processes async     -> Whisper -> Claude -> FFmpeg / ElevenLabs
+3. Polling shows live status  -> User sees progress on screen
+4. Job completes              -> Credits deducted, output file stored
+5. Job fails                  -> Credits fully restored, error shown
+6. History                    -> All outputs saved, searchable, downloadable
+
+----------------------------------------------------------------
+FIRM / TEAM FEATURES
+----------------------------------------------------------------
+
+- Admin invites team members
+- Per-member usage tracking
+- Shared credit pool managed from one dashboard
+- Same logic as LegalSuite firm portal
+
+----------------------------------------------------------------
+UI DESIGN SYSTEM
+----------------------------------------------------------------
+
+Philosophy: Clean, Calm, Professional, Luxury
+Same design language as LegalSuite Portal.
+
+
+TYPOGRAPHY
+----------
+Primary font    : Inter (300, 400, 500, 600, 700, 800)
+Display font    : Playfair Display (600, 700) — headings and titles
+Fallback        : Georgia, Times New Roman, system-ui, sans-serif
+Base size       : 16px
+Body size       : 0.9375rem (15px)
+Line height     : 1.6
+Heading weight  : 600
+Letter spacing  : -0.02em on headings, -0.01em on display
+
+Type scale:
+  xs            : 0.75rem  (12px)
+  sm            : 0.8125rem (13px)
+  base          : 0.9375rem (15px)
+  lg            : 1.0625rem (17px)
+  xl            : 1.25rem  (20px)
+  2xl           : 1.5rem   (24px)
+  3xl           : 1.875rem (30px)
+
+
+COLOUR PALETTE — LIGHT MODE
+----------------------------
+Surfaces (Warm Sage):
+  --bg            : #F4F3EE   (page background)
+  --bg-2          : #E8E6E1   (body background)
+  --bg-3          : #E1DED6   (subtle surface)
+  --bg-4          : #D6D2C4   (card borders, dividers)
+
+Text:
+  --text          : #111111   (primary text)
+  --text-2        : #1A1A1A   (secondary text)
+  --text-3        : #5A5A5A   (muted text, labels)
+  --text-4        : #8A8A8A   (faint text, placeholders)
+
+Brand:
+  --primary       : #000000   (buttons, links, active states)
+  --primary-h     : #1A1A1A   (hover)
+  --primary-a     : #E8E8E6   (light tint)
+  --primary-b     : #C9C9C9   (border tint)
+
+Accent (Gold/Amber):
+  --accent        : #92400E
+  --accent-h      : #78350F
+  --accent-a      : #F3EAD3
+
+Status:
+  --success       : #059669   background: #D9EEDD
+  --danger        : #DC2626   background: #F6E1DC
+  --warning       : #D97706   background: #F3EAD3
+  --info          : #2563EB   background: #E0E6EA
+
+Borders:
+  --border        : #D6D2C4
+  --border-2      : #C6C1B0
+  --border-focus  : #000000
+
+
+COLOUR PALETTE — DARK MODE
+----------------------------
+Surfaces:
+  --bg            : #161616
+  --bg-2          : #0D0D0D
+  --bg-3          : #1F1F1F
+  --bg-4          : #2A2A2A
+
+Text:
+  --text          : #F2F2F2
+  --text-2        : #DEDEDE
+  --text-3        : #A6A6A6
+  --text-4        : #7A7A7A
+
+Brand:
+  --primary       : #CCCCCC
+  --primary-h     : #E2E2E2
+
+Accent (Gold — lighter in dark mode):
+  --accent        : #E4C980
+  --accent-h      : #D9B45E
+  --accent-a      : #33301F
+
+Borders:
+  --border        : #3A3A3A
+  --border-2      : #4A4A4A
+  --border-focus  : #CCCCCC
+
+
+SPACING AND LAYOUT
+------------------
+Sidebar width   : 256px (icon rail — collapsed by default on mobile)
+Navbar height   : 60px
+Border radius:
+  default         : 8px
+  lg              : 12px
+  xl              : 16px
+  2xl             : 20px
+
+
+SHADOWS
+-------
+  sm    : 0 1px 2px 0 rgb(0 0 0 / .05)
+  md    : 0 4px 6px -1px rgb(0 0 0 / .1)
+  lg    : 0 10px 15px -3px rgb(0 0 0 / .1)
+  xl    : 0 20px 25px -5px rgb(0 0 0 / .1)
+  2xl   : 0 25px 50px -12px rgb(0 0 0 / .25)
+
+
+MOTION
+------
+Easing          : cubic-bezier(0.4, 0, 0.2, 1)
+Fast            : 150ms
+Default         : 200ms
+Slow            : 300ms
+
+Page transition : fadeSlideUp — opacity 0 to 1, translateY 16px to 0
+                  duration 300ms on every page load via .page-enter class
+
+
+LAYOUT STRUCTURE
+----------------
+- Fixed top navbar (60px height)
+- Fixed left sidebar (icon rail, 256px, collapses to icons on mobile)
+- Main content area scrolls independently
+- Cards use white/surface background with border and shadow-sm
+- Two-column layout inside workspace pages (upload panel + result panel)
+- Mobile: sidebar collapses behind a backdrop overlay
+
+
+NAVIGATION
+----------
+- Top navbar: logo, firm name, wallet balance, plan badge,
+              dark mode toggle, help button, user avatar, sign out
+- Left sidebar: icon-only rail with tooltips on hover
+  Each icon links to a tool page with an active highlight state
+- Sidebar items for DAK: Home, Transcription, Subtitling,
+  Captioning, AI Dubbing, History, Billing
+
+
+CORE COMPONENTS
+---------------
+Buttons:
+  btn-primary   : Black background, white text, 8px radius
+  btn-secondary : Border only, transparent background
+  btn-ghost     : No border, no background — text only
+  btn-danger    : Red background for destructive actions
+  All buttons   : loading state with spinner, disabled state
+
+Forms:
+  form-input    : Full width, 8px radius, black focus border
+  form-textarea : Resizable, same styling as input
+  form-select   : Styled dropdown, consistent with inputs
+  form-label    : 0.8125rem, font-weight 500, text-3 colour
+
+Cards:
+  White/surface background, 1px border (--border),
+  shadow-sm, 12px radius, 1.25rem padding
+
+Alerts:
+  alert-success / alert-danger / alert-warning / alert-info
+  Left border accent, icon + message, dismissible
+
+Badges:
+  Inline pill — plan badges (Free, Pro, Firm)
+  Coloured background matching status colours
+
+Upload area:
+  Dashed border, drag-and-drop zone, file type + size hint
+  Hover state: border darkens, background lightens
+
+
+ICONS
+-----
+Library         : Lucide Icons (SVG, inline)
+Default size    : 20px stroke icons
+Stroke width    : 2px
+All icons       : currentColor (inherits text colour)
+
+
+----------------------------------------------------------------
+BUILD ORDER (when ready)
+----------------------------------------------------------------
+
+Phase 1  : Transcription  (simplest, fastest to validate)
+Phase 2  : Subtitling     (reuses Whisper timestamps, no extra API)
+Phase 3  : Captioning     (adds FFmpeg burn-in layer)
+Phase 4  : AI Dubbing     (ElevenLabs pipeline, most complex)
+
+----------------------------------------------------------------
+FUTURE MERGE PLAN WITH LEGALSUITE
+----------------------------------------------------------------
+
+- Both platforms built separately on their own Replit projects
+- Same UI design language, same Razorpay credit logic
+- Once both are stable, evaluate unified login option
+- User sees LegalSuite tools and DAK tools under one account
+
+================================================================
+END OF DOCUMENT
+================================================================
