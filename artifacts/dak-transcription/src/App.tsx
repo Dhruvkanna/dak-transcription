@@ -17,6 +17,7 @@ import Billing from '@/pages/Billing';
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
 import VerifyEmail from '@/pages/VerifyEmail';
+import ForgotPassword from '@/pages/ForgotPassword';
 
 const queryClient = new QueryClient();
 
@@ -65,6 +66,7 @@ function Router() {
         {!loading && user ? <Redirect to="/" /> : <Register />}
       </Route>
       <Route path="/verify-email" component={VerifyEmail} />
+      <Route path="/forgot-password" component={ForgotPassword} />
 
       {/* Protected — everything else */}
       <Route>

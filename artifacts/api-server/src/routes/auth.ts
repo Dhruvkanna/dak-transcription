@@ -32,7 +32,7 @@ function clearAuthCookie(res: Response): void {
 
 // ── Email verification sender ─────────────────────────────────────────────────
 
-async function sendVerificationEmail(email: string, token: string): Promise<void> {
+async function sendVerificationEmail(email: string, token: string, type: "verify" | "reset" = "verify"): Promise<void> {
   const smtpServer   = process.env.SMTP_SERVER;
   const smtpPort     = Number(process.env.SMTP_PORT ?? 587);
   const senderEmail  = process.env.SENDER_EMAIL;
@@ -51,13 +51,15 @@ async function sendVerificationEmail(email: string, token: string): Promise<void
     auth: { user: senderEmail, pass: senderPass },
   });
 
-  // Format OTP with a space in the middle for readability: "123 456"
   const displayOtp = `${token.slice(0, 3)} ${token.slice(3)}`;
+  const isReset    = type === "reset";
 
   await transporter.sendMail({
     from: `"DAK Transcription" <${senderEmail}>`,
     to: email,
-    subject: `${token} is your DAK Transcription verification code`,
+    subject: isReset
+      ? `${token} is your DAK Transcription password reset code`
+      : `${token} is your DAK Transcription verification code`,
     html: `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -92,8 +94,8 @@ async function sendVerificationEmail(email: string, token: string): Promise<void
               <div style="height:1px;background:rgba(255,255,255,0.08);margin-top:28px;"></div>
 
               <div style="margin-top:28px;">
-                <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#E4C980;font-weight:600;margin-bottom:10px;">Verification Code</div>
-                <div style="font-family:Georgia,serif;font-size:26px;font-weight:bold;color:#ffffff;line-height:1.25;letter-spacing:-0.5px;">Confirm your<br/>email address</div>
+                <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#E4C980;font-weight:600;margin-bottom:10px;">${isReset ? "Password Reset" : "Verification Code"}</div>
+                <div style="font-family:Georgia,serif;font-size:26px;font-weight:bold;color:#ffffff;line-height:1.25;letter-spacing:-0.5px;">${isReset ? "Reset your<br/>password" : "Confirm your<br/>email address"}</div>
               </div>
             </td>
           </tr>
@@ -102,7 +104,9 @@ async function sendVerificationEmail(email: string, token: string): Promise<void
           <tr>
             <td style="padding:40px 48px 16px;">
               <p style="margin:0 0 28px;font-size:15px;line-height:1.7;color:#444444;">
-                Use the code below to verify your email and activate your DAK Transcription account.
+                ${isReset
+                  ? "Use the code below to reset your DAK Transcription password. If you didn't request this, you can safely ignore it."
+                  : "Use the code below to verify your email and activate your DAK Transcription account."}
               </p>
 
               <!-- OTP display -->
@@ -267,6 +271,67 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   const token = signToken(user.id, user.email);
   setAuthCookie(res, token);
   res.json({ user: { id: user.id, email: user.email } });
+});
+
+// ── POST /api/auth/forgot-password ───────────────────────────────────────────
+
+router.post("/auth/forgot-password", async (req, res): Promise<void> => {
+  const { email } = req.body as { email?: string };
+  if (!email) { res.status(400).json({ error: "Email is required" }); return; }
+
+  const [user] = await db.select()
+    .from(usersTable)
+    .where(eq(usersTable.email, email.toLowerCase()))
+    .limit(1);
+
+  // Always return 200 — don't leak account existence
+  if (!user) { res.json({ message: "If that email exists, a reset code has been sent." }); return; }
+
+  const otp       = String(Math.floor(100000 + Math.random() * 900000));
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+  await db.update(usersTable)
+    .set({ verificationToken: otp, verificationTokenExpiresAt: expiresAt })
+    .where(eq(usersTable.id, user.id));
+
+  try {
+    await sendVerificationEmail(email.toLowerCase(), otp, "reset");
+  } catch (err) {
+    console.error("[auth] Failed to send reset OTP:", err);
+  }
+
+  res.json({ message: "Reset code sent to your email." });
+});
+
+// ── POST /api/auth/reset-password ─────────────────────────────────────────────
+
+router.post("/auth/reset-password", async (req, res): Promise<void> => {
+  const { email, otp, newPassword } = req.body as { email?: string; otp?: string; newPassword?: string };
+  if (!email || !otp || !newPassword) {
+    res.status(400).json({ error: "Email, OTP, and new password are required" }); return;
+  }
+  if (newPassword.length < 8) {
+    res.status(400).json({ error: "Password must be at least 8 characters" }); return;
+  }
+
+  const [user] = await db.select()
+    .from(usersTable)
+    .where(eq(usersTable.email, email.toLowerCase()))
+    .limit(1);
+
+  if (!user || user.verificationToken !== otp) {
+    res.status(400).json({ error: "Invalid or expired reset code." }); return;
+  }
+  if (user.verificationTokenExpiresAt && user.verificationTokenExpiresAt < new Date()) {
+    res.status(400).json({ error: "Reset code has expired. Please request a new one." }); return;
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  await db.update(usersTable)
+    .set({ passwordHash, emailVerified: true, verificationToken: null, verificationTokenExpiresAt: null })
+    .where(eq(usersTable.id, user.id));
+
+  res.json({ message: "Password reset successfully." });
 });
 
 // ── POST /api/auth/logout ─────────────────────────────────────────────────────

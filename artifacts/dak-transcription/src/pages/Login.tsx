@@ -19,21 +19,27 @@ export default function Login() {
   const [, navigate] = useLocation();
   const { theme, toggleTheme } = useTheme();
 
-  const [email, setEmail]       = useState('');
-  const [password, setPassword] = useState('');
-  const [showPass, setShowPass] = useState(false);
-  const [error, setError]       = useState('');
-  const [loading, setLoading]   = useState(false);
+  const [email, setEmail]             = useState('');
+  const [password, setPassword]       = useState('');
+  const [showPass, setShowPass]       = useState(false);
+  const [error, setError]             = useState('');
+  const [unverified, setUnverified]   = useState(false);
+  const [loading, setLoading]         = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+    setUnverified(false);
     setLoading(true);
     try {
       await login(email.trim(), password);
       navigate('/');
     } catch (err: any) {
-      setError(err.message ?? 'Something went wrong');
+      if (err.code === 'EMAIL_NOT_VERIFIED') {
+        setUnverified(true);
+      } else {
+        setError(err.message ?? 'Something went wrong');
+      }
     } finally {
       setLoading(false);
     }
@@ -118,6 +124,19 @@ export default function Login() {
 
           <form onSubmit={handleSubmit} className="space-y-5">
 
+            {unverified && (
+              <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-sm">
+                <p className="font-medium text-amber-700 dark:text-amber-400 mb-1">Email not verified</p>
+                <p className="text-foreground-4 mb-2">Check your inbox for the OTP we sent, or request a new one.</p>
+                <Link
+                  href={`/verify-email?email=${encodeURIComponent(email.trim())}`}
+                  className="font-semibold text-foreground underline underline-offset-4"
+                >
+                  Enter / resend verification code →
+                </Link>
+              </div>
+            )}
+
             {error && (
               <div className="flex items-center gap-2 p-3 rounded-lg bg-danger-bg/60 text-danger text-sm">
                 <AlertTriangle size={15} className="shrink-0" />
@@ -135,7 +154,12 @@ export default function Login() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="password">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Password</Label>
+                <Link href="/forgot-password" className="text-xs text-foreground-4 hover:text-foreground underline underline-offset-4 transition-colors">
+                  Forgot password?
+                </Link>
+              </div>
               <div className="relative">
                 <Input
                   id="password" required autoComplete="current-password"

@@ -44,7 +44,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       body: JSON.stringify({ email, password }),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error ?? 'Login failed');
+    if (!res.ok) {
+      const err: any = new Error(data.error ?? 'Login failed');
+      err.code = data.code;
+      throw err;
+    }
     setUser(data.user);
   }, [BASE]);
 
