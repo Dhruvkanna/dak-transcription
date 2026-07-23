@@ -13,7 +13,6 @@ import {
   LogOut,
   User,
   Plus,
-  Users,
   HelpCircle,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -23,6 +22,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { NewJobModal } from '@/components/NewJobModal';
+import { SupportModal } from '@/components/SupportModal';
 
 /* ─── Top Nav ─────────────────────────────────────────────── */
 
@@ -82,70 +82,40 @@ export function TopNav() {
 
 interface NavItem {
   name: string;
-  path?: string;
+  path: string;
   icon: React.ElementType;
-  action?: 'newJob';
 }
 
-const topItems: NavItem[] = [
+const mainNavItems: NavItem[] = [
   { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-];
-
-const middleItems: NavItem[] = [
   { name: 'History', path: '/history', icon: History },
-];
-
-const bottomItems: NavItem[] = [
   { name: 'Billing', path: '/billing', icon: CreditCard },
-  { name: 'Help', path: '/help', icon: HelpCircle },
 ];
 
-function NavIcon({
-  item,
-  isActive,
-  onClick,
-}: {
-  item: NavItem;
-  isActive: boolean;
-  onClick?: () => void;
-}) {
+function NavIcon({ item, isActive }: { item: NavItem; isActive: boolean }) {
   const Icon = item.icon;
-
-  const inner = (
-    <div
-      className={cn(
-        'w-10 h-10 flex items-center justify-center rounded-xl cursor-pointer transition-all duration-150',
-        isActive
-          ? 'bg-white shadow-sm'
-          : 'hover:bg-white/10',
-      )}
-      onClick={onClick}
-    >
-      <Icon
-        size={19}
-        className={cn(
-          'transition-colors',
-          isActive ? 'text-[#111]' : 'text-white/70 group-hover:text-white',
-        )}
-        strokeWidth={isActive ? 2.2 : 1.8}
-      />
-    </div>
-  );
-
   return (
     <Tooltip delayDuration={300}>
       <TooltipTrigger asChild>
-        <div className="group">
-          {item.path ? (
-            <Link href={item.path}>{inner}</Link>
-          ) : (
-            inner
-          )}
-        </div>
+        <Link href={item.path}>
+          <div
+            className={cn(
+              'w-10 h-10 flex items-center justify-center rounded-xl cursor-pointer transition-all duration-150',
+              isActive ? 'bg-white shadow-sm' : 'hover:bg-white/10',
+            )}
+          >
+            <Icon
+              size={19}
+              className={cn(
+                'transition-colors',
+                isActive ? 'text-[#111]' : 'text-white/70 hover:text-white',
+              )}
+              strokeWidth={isActive ? 2.2 : 1.8}
+            />
+          </div>
+        </Link>
       </TooltipTrigger>
-      <TooltipContent side="right" sideOffset={12}>
-        {item.name}
-      </TooltipContent>
+      <TooltipContent side="right" sideOffset={12}>{item.name}</TooltipContent>
     </Tooltip>
   );
 }
@@ -153,12 +123,15 @@ function NavIcon({
 export function Sidebar() {
   const [location] = useLocation();
   const [jobModalOpen, setJobModalOpen] = React.useState(false);
+  const [supportOpen, setSupportOpen] = React.useState(false);
 
   return (
     <>
       <NewJobModal open={jobModalOpen} onClose={() => setJobModalOpen(false)} />
+      <SupportModal open={supportOpen} onClose={() => setSupportOpen(false)} />
 
-      <aside className="fixed left-3 top-[76px] z-40 flex flex-col">
+      {/* Fixed wrapper spans below topnav to bottom — inner pill is centered */}
+      <aside className="fixed left-3 top-[60px] bottom-0 z-40 flex items-center">
         <div className="bg-[#111111] rounded-[28px] py-3 px-1.5 flex flex-col items-center gap-0.5 shadow-2xl w-[56px]">
 
           {/* New Job — primary action */}
@@ -175,43 +148,29 @@ export function Sidebar() {
             <TooltipContent side="right" sideOffset={12}>New Job</TooltipContent>
           </Tooltip>
 
-          {/* Divider */}
           <div className="w-5 h-px bg-white/10 my-1.5" />
 
-          {/* Top nav items */}
-          {topItems.map((item) => (
-            <NavIcon
-              key={item.name}
-              item={item}
-              isActive={location === item.path}
-            />
+          {/* Main nav */}
+          {mainNavItems.map((item) => (
+            <NavIcon key={item.path} item={item} isActive={location === item.path} />
           ))}
 
-          {/* Divider */}
           <div className="w-5 h-px bg-white/10 my-1.5" />
 
-          {/* Middle nav items */}
-          {middleItems.map((item) => (
-            <NavIcon
-              key={item.name}
-              item={item}
-              isActive={location === item.path}
-            />
-          ))}
+          {/* Help & Support */}
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setSupportOpen(true)}
+                className="w-10 h-10 flex items-center justify-center rounded-xl hover:bg-white/10 transition-colors group"
+                aria-label="Help & Support"
+              >
+                <HelpCircle size={19} className="text-white/70 group-hover:text-white transition-colors" strokeWidth={1.8} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right" sideOffset={12}>Help & Support</TooltipContent>
+          </Tooltip>
 
-          {/* Divider */}
-          <div className="w-5 h-px bg-white/10 my-1.5" />
-
-          {/* Bottom nav items */}
-          {bottomItems.map((item) => (
-            <NavIcon
-              key={item.name}
-              item={item}
-              isActive={location === item.path}
-            />
-          ))}
-
-          {/* Divider */}
           <div className="w-5 h-px bg-white/10 my-1.5" />
 
           {/* Sign Out */}

@@ -21,3 +21,10 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+SENDER_EMAIL = "supportmatriq@gmail.com"
+SMTP_PORT = "587"
+SMTP_SERVER = "smtp.gmail.com"
