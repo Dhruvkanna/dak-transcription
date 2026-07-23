@@ -51,22 +51,22 @@ async function sendVerificationEmail(email: string, token: string): Promise<void
     auth: { user: senderEmail, pass: senderPass },
   });
 
-  const verifyUrl = `${appBaseUrl}/verify-email?token=${token}`;
+  // Format OTP with a space in the middle for readability: "123 456"
+  const displayOtp = `${token.slice(0, 3)} ${token.slice(3)}`;
 
   await transporter.sendMail({
     from: `"DAK Transcription" <${senderEmail}>`,
     to: email,
-    subject: "Verify your email — DAK Transcription",
+    subject: `${token} is your DAK Transcription verification code`,
     html: `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Verify your email</title>
+  <title>Your verification code</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f5f4f0;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
 
-  <!-- Outer wrapper -->
   <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f5f4f0;padding:48px 16px;">
     <tr>
       <td align="center">
@@ -74,85 +74,69 @@ async function sendVerificationEmail(email: string, token: string): Promise<void
         <!-- Card -->
         <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
 
-          <!-- Header band -->
+          <!-- Dark header -->
           <tr>
             <td style="background:#111111;padding:36px 48px 32px;">
-              <!-- Logo row -->
               <table cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="vertical-align:middle;">
-                    <div style="width:40px;height:40px;background:#E4C980;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;font-family:Georgia,serif;font-size:20px;font-weight:bold;color:#111111;text-align:center;line-height:40px;">D</div>
+                    <div style="width:40px;height:40px;background:#E4C980;border-radius:10px;font-family:Georgia,serif;font-size:20px;font-weight:bold;color:#111111;text-align:center;line-height:40px;">D</div>
                   </td>
                   <td style="vertical-align:middle;padding-left:12px;">
                     <div style="font-family:Georgia,serif;font-size:18px;font-weight:bold;color:#ffffff;letter-spacing:-0.3px;line-height:1.1;">DAK Transcription</div>
-                    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:2px;letter-spacing:0.2px;">Audio &amp; Video Intelligence</div>
+                    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:2px;">Audio &amp; Video Intelligence</div>
                   </td>
                 </tr>
               </table>
 
-              <!-- Divider -->
               <div style="height:1px;background:rgba(255,255,255,0.08);margin-top:28px;"></div>
 
-              <!-- Hero text -->
               <div style="margin-top:28px;">
-                <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#E4C980;font-weight:600;margin-bottom:10px;">Account Verification</div>
-                <div style="font-family:Georgia,serif;font-size:28px;font-weight:bold;color:#ffffff;line-height:1.25;letter-spacing:-0.5px;">Confirm your<br/>email address</div>
+                <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#E4C980;font-weight:600;margin-bottom:10px;">Verification Code</div>
+                <div style="font-family:Georgia,serif;font-size:26px;font-weight:bold;color:#ffffff;line-height:1.25;letter-spacing:-0.5px;">Confirm your<br/>email address</div>
               </div>
             </td>
           </tr>
 
           <!-- Body -->
           <tr>
-            <td style="padding:40px 48px 36px;">
-              <p style="margin:0 0 20px;font-size:15px;line-height:1.7;color:#444444;">
-                Welcome aboard. You're one step away from accessing AI-powered transcription, subtitling, captioning, and dubbing — all billed in INR.
-              </p>
-              <p style="margin:0 0 32px;font-size:15px;line-height:1.7;color:#444444;">
-                Click the button below to verify your email and activate your account.
+            <td style="padding:40px 48px 16px;">
+              <p style="margin:0 0 28px;font-size:15px;line-height:1.7;color:#444444;">
+                Use the code below to verify your email and activate your DAK Transcription account.
               </p>
 
-              <!-- CTA button -->
-              <table cellpadding="0" cellspacing="0" style="margin-bottom:36px;">
+              <!-- OTP display -->
+              <div style="background:#f8f7f4;border:2px solid #111111;border-radius:14px;padding:28px 24px;text-align:center;margin-bottom:28px;">
+                <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#888888;font-weight:600;margin-bottom:14px;">Your one-time code</div>
+                <div style="font-family:'Courier New',Courier,monospace;font-size:44px;font-weight:bold;color:#111111;letter-spacing:12px;line-height:1;">${displayOtp}</div>
+              </div>
+
+              <!-- Expiry warning -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
                 <tr>
-                  <td style="border-radius:10px;background:#111111;">
-                    <a href="${verifyUrl}"
-                       style="display:inline-block;padding:15px 40px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:10px;letter-spacing:0.1px;">
-                      Verify my email &rarr;
-                    </a>
+                  <td style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:14px 18px;">
+                    <span style="font-size:13px;color:#92400e;line-height:1.6;">
+                      ⏱&nbsp; This code expires in <strong>10 minutes</strong>. Do not share it with anyone.
+                    </span>
                   </td>
                 </tr>
               </table>
 
-              <!-- Fallback link box -->
-              <div style="background:#f8f7f4;border:1px solid #e8e6e0;border-radius:10px;padding:18px 20px;margin-bottom:32px;">
-                <div style="font-size:12px;color:#888888;margin-bottom:8px;font-weight:500;letter-spacing:0.3px;text-transform:uppercase;">Or copy this link into your browser</div>
-                <div style="font-size:12px;color:#555555;word-break:break-all;line-height:1.6;">${verifyUrl}</div>
-              </div>
-
-              <!-- Expiry note -->
-              <div style="display:flex;align-items:flex-start;gap:10px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:14px 16px;">
-                <div style="font-size:13px;color:#92400e;line-height:1.6;">
-                  ⏱ &nbsp;This link expires in <strong>24 hours</strong>. If you didn't create a DAK Transcription account, you can safely ignore this email.
-                </div>
-              </div>
+              <p style="margin:0 0 0;font-size:13px;line-height:1.7;color:#999999;">
+                If you didn't create a DAK Transcription account, you can safely ignore this email.
+              </p>
             </td>
           </tr>
 
           <!-- Footer -->
           <tr>
-            <td style="background:#f8f7f4;border-top:1px solid #eeece8;padding:24px 48px;text-align:center;">
-              <p style="margin:0 0 6px;font-size:12px;color:#aaaaaa;line-height:1.6;">
-                DAK Transcription · Made for Indian creators
-              </p>
-              <p style="margin:0;font-size:11px;color:#c0bdb7;">
-                © ${new Date().getFullYear()} DAK Transcription. All rights reserved.
-              </p>
+            <td style="background:#f8f7f4;border-top:1px solid #eeece8;padding:24px 48px;text-align:center;margin-top:28px;">
+              <p style="margin:0 0 6px;font-size:12px;color:#aaaaaa;line-height:1.6;">DAK Transcription · Made for Indian creators</p>
+              <p style="margin:0;font-size:11px;color:#c0bdb7;">© ${new Date().getFullYear()} DAK Transcription. All rights reserved.</p>
             </td>
           </tr>
 
         </table>
-        <!-- /Card -->
-
       </td>
     </tr>
   </table>
@@ -184,8 +168,8 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   }
 
   const passwordHash        = await bcrypt.hash(password, 12);
-  const verificationToken   = crypto.randomBytes(32).toString("hex");
-  const expiresAt           = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const verificationToken   = String(Math.floor(100000 + Math.random() * 900000)); // 6-digit OTP
+  const expiresAt           = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
   await db.insert(usersTable).values({
     email: email.toLowerCase(),
@@ -203,30 +187,63 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   res.status(201).json({ message: "Account created. Check your email to verify your account." });
 });
 
-// ── GET /api/auth/verify-email ────────────────────────────────────────────────
+// ── POST /api/auth/verify-otp ─────────────────────────────────────────────────
 
-router.get("/auth/verify-email", async (req, res): Promise<void> => {
-  const token = req.query.token as string | undefined;
-  if (!token) { res.status(400).json({ error: "Missing token" }); return; }
+router.post("/auth/verify-otp", async (req, res): Promise<void> => {
+  const { email, otp } = req.body as { email?: string; otp?: string };
+  if (!email || !otp) { res.status(400).json({ error: "Email and OTP are required" }); return; }
 
   const [user] = await db.select()
     .from(usersTable)
-    .where(eq(usersTable.verificationToken, token))
+    .where(eq(usersTable.email, email.toLowerCase()))
     .limit(1);
 
-  if (!user) { res.status(400).json({ error: "Invalid or already used verification link" }); return; }
+  if (!user || user.verificationToken !== otp) {
+    res.status(400).json({ error: "Invalid OTP. Please check and try again." }); return;
+  }
   if (user.verificationTokenExpiresAt && user.verificationTokenExpiresAt < new Date()) {
-    res.status(400).json({ error: "Verification link has expired. Please register again." }); return;
+    res.status(400).json({ error: "OTP has expired. Please request a new one." }); return;
   }
 
   await db.update(usersTable)
     .set({ emailVerified: true, verificationToken: null, verificationTokenExpiresAt: null })
     .where(eq(usersTable.id, user.id));
 
-  // Auto-login after verification
   const jwtToken = signToken(user.id, user.email);
   setAuthCookie(res, jwtToken);
   res.json({ message: "Email verified. You are now logged in." });
+});
+
+// ── POST /api/auth/resend-otp ─────────────────────────────────────────────────
+
+router.post("/auth/resend-otp", async (req, res): Promise<void> => {
+  const { email } = req.body as { email?: string };
+  if (!email) { res.status(400).json({ error: "Email is required" }); return; }
+
+  const [user] = await db.select()
+    .from(usersTable)
+    .where(eq(usersTable.email, email.toLowerCase()))
+    .limit(1);
+
+  if (!user || user.emailVerified) {
+    // Return 200 either way — don't leak account existence
+    res.json({ message: "If that email exists and is unverified, a new OTP has been sent." }); return;
+  }
+
+  const newOtp    = String(Math.floor(100000 + Math.random() * 900000));
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+  await db.update(usersTable)
+    .set({ verificationToken: newOtp, verificationTokenExpiresAt: expiresAt })
+    .where(eq(usersTable.id, user.id));
+
+  try {
+    await sendVerificationEmail(email.toLowerCase(), newOtp);
+  } catch (err) {
+    console.error("[auth] Failed to resend OTP:", err);
+  }
+
+  res.json({ message: "A new OTP has been sent to your email." });
 });
 
 // ── POST /api/auth/login ──────────────────────────────────────────────────────

@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { Link } from 'wouter';
+import { Link, useLocation } from 'wouter';
 import { useTheme } from '@/components/theme-provider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { AlertTriangle, CheckCircle2, Eye, EyeOff, Mic, Subtitles, Captions, AudioLines, Sun, Moon } from 'lucide-react';
+import { AlertTriangle, Eye, EyeOff, Mic, Subtitles, Captions, AudioLines, Sun, Moon } from 'lucide-react';
 
 const FEATURES = [
   { icon: Mic,        label: 'AI Transcription',  desc: 'Speaker-labelled transcripts in minutes' },
@@ -16,13 +16,13 @@ const FEATURES = [
 export default function Register() {
   const BASE = import.meta.env.BASE_URL;
   const { theme, toggleTheme } = useTheme();
+  const [, navigate] = useLocation();
 
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm]   = useState('');
   const [showPass, setShowPass] = useState(false);
   const [error, setError]       = useState('');
-  const [success, setSuccess]   = useState(false);
   const [loading, setLoading]   = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -40,7 +40,7 @@ export default function Register() {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? 'Registration failed'); return; }
-      setSuccess(true);
+      navigate(`/verify-email?email=${encodeURIComponent(email.trim())}`);
     } catch {
       setError('Something went wrong. Please try again.');
     } finally {
@@ -115,31 +115,9 @@ export default function Register() {
           <span className="font-serif font-bold text-xl tracking-tight">DAK Transcription</span>
         </div>
 
-        {success ? (
-          /* ── Success state ── */
-          <div className="w-full max-w-sm text-center space-y-5">
-            <div className="w-16 h-16 bg-success-bg rounded-full flex items-center justify-center mx-auto">
-              <CheckCircle2 size={32} className="text-success" />
-            </div>
-            <div>
-              <h2 className="font-serif font-bold text-2xl mb-2">Check your email</h2>
-              <p className="text-foreground-4 text-sm leading-relaxed">
-                We sent a verification link to{' '}
-                <span className="font-semibold text-foreground">{email}</span>.
-                Click it to activate your account.
-              </p>
-            </div>
-            <p className="text-sm text-foreground-4">
-              Already verified?{' '}
-              <Link href="/login" className="text-foreground font-semibold underline underline-offset-4">
-                Sign in
-              </Link>
-            </p>
-          </div>
-        ) : (
-          <div className="w-full max-w-sm">
+        <div className="w-full max-w-sm">
             <div className="mb-8">
-              <h1 className="font-serif font-bold text-3xl tracking-tight mb-1.5">Create account</h1>
+              <h1 className="font-serif font-bold text-3xl tracking-tight mb-1.5">Register</h1>
               <p className="text-foreground-4 text-sm">Start with your email and a secure password.</p>
             </div>
 
@@ -193,7 +171,7 @@ export default function Register() {
               </div>
 
               <Button type="submit" className="w-full h-11 text-base" disabled={loading}>
-                {loading ? 'Creating account…' : 'Create account'}
+                {loading ? 'Creating account…' : 'Register'}
               </Button>
             </form>
 
@@ -204,7 +182,6 @@ export default function Register() {
               </Link>
             </p>
           </div>
-        )}
       </div>
     </div>
   );
