@@ -149,30 +149,30 @@ export default function Billing() {
         <div className="space-y-4">
 
           {/* Balance card */}
-          <Card className="bg-foreground text-background border-none overflow-hidden relative">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-background/5 rounded-bl-full -mr-10 -mt-10" />
+          <Card className="border-none overflow-hidden relative" style={{ background: '#111111', color: '#F4F3EE' }}>
+            <div className="absolute top-0 right-0 w-32 h-32 rounded-bl-full -mr-10 -mt-10" style={{ background: 'rgba(255,255,255,0.04)' }} />
             <CardContent className="p-8">
               <div className="flex justify-between items-start mb-8 relative z-10">
-                <div className="p-3 bg-background/10 rounded-xl">
-                  <WalletIcon size={24} className="text-accent-light" />
+                <div className="p-3 rounded-xl" style={{ background: 'rgba(255,255,255,0.08)' }}>
+                  <WalletIcon size={24} style={{ color: '#E4C980' }} />
                 </div>
                 {balance > 0 && (
-                  <Badge className="bg-success/20 text-success border-success/30 text-[10px] font-bold uppercase tracking-widest">
+                  <Badge className="text-[10px] font-bold uppercase tracking-widest border" style={{ background: 'rgba(34,197,94,0.15)', color: '#4ade80', borderColor: 'rgba(34,197,94,0.25)' }}>
                     Active
                   </Badge>
                 )}
               </div>
-              <p className="text-background/70 text-sm font-medium mb-1">Wallet Balance</p>
-              <h2 className="text-4xl font-serif font-bold font-mono tracking-tight text-accent-light mb-8">
+              <p className="text-sm font-medium mb-1" style={{ color: 'rgba(244,243,238,0.6)' }}>Wallet Balance</p>
+              <h2 className="text-4xl font-serif font-bold font-mono tracking-tight mb-8" style={{ color: '#E4C980' }}>
                 {walletLoading ? '…' : fmtInr(wallet?.balance)}
               </h2>
-              <div className="grid grid-cols-2 gap-4 pt-6 border-t border-background/10">
+              <div className="grid grid-cols-2 gap-4 pt-6" style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                 <div>
-                  <p className="text-xs text-background/60 mb-1">Total Spent</p>
+                  <p className="text-xs mb-1" style={{ color: 'rgba(244,243,238,0.5)' }}>Total Spent</p>
                   <p className="font-mono font-medium">{fmtInr(wallet?.totalSpent)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-background/60 mb-1">Jobs Run</p>
+                  <p className="text-xs mb-1" style={{ color: 'rgba(244,243,238,0.5)' }}>Jobs Run</p>
                   <p className="font-medium">{wallet?.totalJobsRun ?? 0}</p>
                 </div>
               </div>
@@ -181,12 +181,12 @@ export default function Billing() {
 
           {/* Low balance warning */}
           {!walletLoading && balance < 50 && (
-            <Card className="border-amber-300/50 bg-amber-50/50">
+            <Card className="border-danger/30 bg-danger-bg/40">
               <CardContent className="p-5 flex gap-3">
-                <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+                <AlertTriangle size={18} className="text-danger shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-semibold text-amber-900 mb-1">Low balance</p>
-                  <p className="text-xs text-amber-700">Top up to keep running jobs without interruption.</p>
+                  <p className="text-sm font-semibold mb-1">Low balance</p>
+                  <p className="text-xs text-foreground-4">Top up to keep running jobs without interruption.</p>
                 </div>
               </CardContent>
             </Card>
@@ -264,7 +264,7 @@ export default function Billing() {
                           <div className="flex items-center gap-3">
                             <div className={`p-1.5 rounded-full shrink-0 ${
                               isCredit ? 'bg-success-bg text-success' :
-                              isRefund ? 'bg-blue-50 text-blue-500' :
+                              isRefund ? 'bg-primary/10 text-primary' :
                               'bg-background-3 text-foreground-3'}`}>
                               {isCredit ? <ArrowUpRight size={14} /> :
                                isRefund ? <RotateCcw size={14} /> :

@@ -49,14 +49,9 @@ export function TopNav() {
           {isLoading ? (
             <div className="h-6 w-24 bg-background-3 animate-pulse rounded-md" />
           ) : wallet ? (
-            <>
-              <Badge variant="outline" className="font-mono text-sm bg-background-2">
-                {formatCurrency(wallet.balance)}
-              </Badge>
-              <Badge variant="info" className="uppercase text-[10px] tracking-wider">
-                {wallet.planType} PLAN
-              </Badge>
-            </>
+            <Badge variant="outline" className="font-mono text-sm bg-background-2">
+              {formatCurrency(wallet.balance)}
+            </Badge>
           ) : null}
         </div>
 
