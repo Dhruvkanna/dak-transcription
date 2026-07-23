@@ -6,52 +6,48 @@ import { useGetWallet } from '@workspace/api-client-react';
 import { formatCurrency } from '@/lib/utils';
 import {
   LayoutDashboard,
-  FileText,
-  Subtitles,
-  MonitorPlay,
-  Mic2,
   History,
   CreditCard,
   Sun,
   Moon,
   LogOut,
   User,
-  PanelLeftClose,
-  PanelLeftOpen
+  Plus,
+  Users,
+  HelpCircle,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { NewJobModal } from '@/components/NewJobModal';
 
-export function TopNav({ toggleSidebar, sidebarOpen }: { toggleSidebar: () => void, sidebarOpen: boolean }) {
+/* ─── Top Nav ─────────────────────────────────────────────── */
+
+export function TopNav() {
   const { theme, toggleTheme } = useTheme();
   const { data: wallet, isLoading } = useGetWallet();
 
   return (
-    <header className="fixed top-0 left-0 right-0 h-[60px] bg-background border-b border-border z-40 flex items-center justify-between px-4">
-      <div className="flex items-center gap-4">
-        <button 
-          onClick={toggleSidebar}
-          className="p-2 hover:bg-background-2 rounded-md md:hidden text-foreground-2"
-        >
-          {sidebarOpen ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
-        </button>
-        <Link href="/">
-          <div className="flex items-center gap-3 cursor-pointer">
-            <div className="w-8 h-8 bg-primary text-primary-foreground rounded-md flex items-center justify-center font-serif font-bold text-lg leading-none pt-0.5">
-              D
-            </div>
-            <div className="flex items-baseline gap-2">
-              <span className="font-serif font-bold text-xl tracking-tight leading-none pt-0.5">DAK</span>
-              <span className="text-sm font-medium text-foreground-3 hidden sm:inline-block">Transcription</span>
-            </div>
+    <header className="fixed top-0 left-0 right-0 h-[60px] bg-background border-b border-border z-40 flex items-center justify-between px-6">
+      <Link href="/">
+        <div className="flex items-center gap-3 cursor-pointer">
+          <div className="w-8 h-8 bg-primary text-primary-foreground rounded-md flex items-center justify-center font-serif font-bold text-lg leading-none pt-0.5">
+            D
           </div>
-        </Link>
-      </div>
+          <div className="flex items-baseline gap-2">
+            <span className="font-serif font-bold text-xl tracking-tight leading-none pt-0.5">DAK</span>
+            <span className="text-sm font-medium text-foreground-3 hidden sm:inline-block">Transcription</span>
+          </div>
+        </div>
+      </Link>
 
       <div className="flex items-center gap-3 md:gap-5">
         <div className="hidden sm:flex items-center gap-2">
           {isLoading ? (
-            <div className="h-6 w-24 bg-background-3 animate-pulse rounded-md"></div>
+            <div className="h-6 w-24 bg-background-3 animate-pulse rounded-md" />
           ) : wallet ? (
             <>
               <Badge variant="outline" className="font-mono text-sm bg-background-2">
@@ -64,9 +60,9 @@ export function TopNav({ toggleSidebar, sidebarOpen }: { toggleSidebar: () => vo
           ) : null}
         </div>
 
-        <div className="w-px h-6 bg-border hidden sm:block"></div>
+        <div className="w-px h-6 bg-border hidden sm:block" />
 
-        <button 
+        <button
           onClick={toggleTheme}
           className="p-2 hover:bg-background-2 rounded-full text-foreground-3 transition-colors"
           aria-label="Toggle dark mode"
@@ -74,117 +70,179 @@ export function TopNav({ toggleSidebar, sidebarOpen }: { toggleSidebar: () => vo
           {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
         </button>
 
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-background-3 flex items-center justify-center text-foreground-2">
-            <User size={16} />
-          </div>
+        <div className="w-8 h-8 rounded-full bg-background-3 flex items-center justify-center text-foreground-2">
+          <User size={16} />
         </div>
       </div>
     </header>
   );
 }
 
-const navItems = [
+/* ─── Pill Sidebar ─────────────────────────────────────────── */
+
+interface NavItem {
+  name: string;
+  path?: string;
+  icon: React.ElementType;
+  action?: 'newJob';
+}
+
+const topItems: NavItem[] = [
   { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-  { name: 'Transcription', path: '/transcription', icon: FileText },
-  { name: 'Subtitling', path: '/subtitling', icon: Subtitles },
-  { name: 'Captioning', path: '/captioning', icon: MonitorPlay },
-  { name: 'AI Dubbing', path: '/dubbing', icon: Mic2 },
-  { name: 'History', path: '/history', icon: History },
-  { name: 'Billing', path: '/billing', icon: CreditCard },
 ];
 
-export function Sidebar({ open, setOpen }: { open: boolean, setOpen: (o: boolean) => void }) {
+const middleItems: NavItem[] = [
+  { name: 'History', path: '/history', icon: History },
+  { name: 'Team', path: '/team', icon: Users },
+];
+
+const bottomItems: NavItem[] = [
+  { name: 'Billing', path: '/billing', icon: CreditCard },
+  { name: 'Help', path: '/help', icon: HelpCircle },
+];
+
+function NavIcon({
+  item,
+  isActive,
+  onClick,
+}: {
+  item: NavItem;
+  isActive: boolean;
+  onClick?: () => void;
+}) {
+  const Icon = item.icon;
+
+  const inner = (
+    <div
+      className={cn(
+        'w-10 h-10 flex items-center justify-center rounded-xl cursor-pointer transition-all duration-150',
+        isActive
+          ? 'bg-white shadow-sm'
+          : 'hover:bg-white/10',
+      )}
+      onClick={onClick}
+    >
+      <Icon
+        size={19}
+        className={cn(
+          'transition-colors',
+          isActive ? 'text-[#111]' : 'text-white/70 group-hover:text-white',
+        )}
+        strokeWidth={isActive ? 2.2 : 1.8}
+      />
+    </div>
+  );
+
+  return (
+    <Tooltip delayDuration={300}>
+      <TooltipTrigger asChild>
+        <div className="group">
+          {item.path ? (
+            <Link href={item.path}>{inner}</Link>
+          ) : (
+            inner
+          )}
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="right" sideOffset={12}>
+        {item.name}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+export function Sidebar() {
   const [location] = useLocation();
+  const [jobModalOpen, setJobModalOpen] = React.useState(false);
 
   return (
     <>
-      {/* Mobile backdrop */}
-      {open && (
-        <div 
-          className="fixed inset-0 bg-black/50 z-40 md:hidden transition-opacity"
-          onClick={() => setOpen(false)}
-        />
-      )}
-      
-      <aside 
-        className={cn(
-          "fixed top-[60px] bottom-0 left-0 bg-background-2 border-r border-border z-40 transition-all duration-300 ease-in-out overflow-y-auto flex flex-col",
-          open ? "w-[256px] translate-x-0" : "w-[64px] -translate-x-full md:translate-x-0"
-        )}
-      >
-        <nav className="flex-1 py-4 flex flex-col gap-1 px-2">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = location === item.path;
-            
-            return (
-              <Link key={item.path} href={item.path}>
-                <div 
-                  className={cn(
-                    "flex items-center gap-3 px-3 py-2.5 rounded-md cursor-pointer transition-all group",
-                    isActive 
-                      ? "bg-background shadow-sm text-primary font-medium" 
-                      : "text-foreground-3 hover:bg-background/50 hover:text-foreground"
-                  )}
-                  title={!open ? item.name : undefined}
-                  onClick={() => window.innerWidth < 768 && setOpen(false)}
-                >
-                  <Icon size={18} className={cn("shrink-0", isActive ? "text-accent" : "text-foreground-4 group-hover:text-foreground-3")} />
-                  <span className={cn(
-                    "truncate transition-opacity duration-200",
-                    !open && "opacity-0 md:hidden"
-                  )}>
-                    {item.name}
-                  </span>
-                </div>
-              </Link>
-            );
-          })}
-        </nav>
-        
-        <div className="p-4 border-t border-border/50">
-          <button className={cn(
-            "flex items-center gap-3 px-3 py-2 text-foreground-3 hover:text-danger hover:bg-danger-bg rounded-md w-full transition-colors",
-            !open && "justify-center px-0 md:justify-start md:px-3"
-          )}>
-            <LogOut size={18} className="shrink-0" />
-            <span className={cn("truncate", !open && "hidden")}>Sign Out</span>
-          </button>
+      <NewJobModal open={jobModalOpen} onClose={() => setJobModalOpen(false)} />
+
+      <aside className="fixed left-3 top-[76px] z-40 flex flex-col">
+        <div className="bg-[#111111] rounded-[28px] py-3 px-1.5 flex flex-col items-center gap-0.5 shadow-2xl w-[56px]">
+
+          {/* New Job — primary action */}
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setJobModalOpen(true)}
+                className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/90 hover:bg-white transition-colors mb-1 shadow-sm"
+                aria-label="New Job"
+              >
+                <Plus size={18} className="text-[#111]" strokeWidth={2.5} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right" sideOffset={12}>New Job</TooltipContent>
+          </Tooltip>
+
+          {/* Divider */}
+          <div className="w-5 h-px bg-white/10 my-1.5" />
+
+          {/* Top nav items */}
+          {topItems.map((item) => (
+            <NavIcon
+              key={item.name}
+              item={item}
+              isActive={location === item.path}
+            />
+          ))}
+
+          {/* Divider */}
+          <div className="w-5 h-px bg-white/10 my-1.5" />
+
+          {/* Middle nav items */}
+          {middleItems.map((item) => (
+            <NavIcon
+              key={item.name}
+              item={item}
+              isActive={location === item.path}
+            />
+          ))}
+
+          {/* Divider */}
+          <div className="w-5 h-px bg-white/10 my-1.5" />
+
+          {/* Bottom nav items */}
+          {bottomItems.map((item) => (
+            <NavIcon
+              key={item.name}
+              item={item}
+              isActive={location === item.path}
+            />
+          ))}
+
+          {/* Divider */}
+          <div className="w-5 h-px bg-white/10 my-1.5" />
+
+          {/* Sign Out */}
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
+              <button
+                className="w-10 h-10 flex items-center justify-center rounded-xl hover:bg-red-500/20 transition-colors group"
+                aria-label="Sign Out"
+              >
+                <LogOut size={18} className="text-white/50 group-hover:text-red-400 transition-colors" strokeWidth={1.8} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right" sideOffset={12}>Sign Out</TooltipContent>
+          </Tooltip>
+
         </div>
       </aside>
     </>
   );
 }
 
+/* ─── App Shell ────────────────────────────────────────────── */
+
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const [sidebarOpen, setSidebarOpen] = React.useState(true);
-
-  // Auto-collapse sidebar on mobile
-  React.useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth < 768) {
-        setSidebarOpen(false);
-      } else {
-        setSidebarOpen(true);
-      }
-    };
-    window.addEventListener('resize', handleResize);
-    handleResize();
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">
-      <TopNav toggleSidebar={() => setSidebarOpen(!sidebarOpen)} sidebarOpen={sidebarOpen} />
+      <TopNav />
       <div className="flex flex-1 pt-[60px]">
-        <Sidebar open={sidebarOpen} setOpen={setSidebarOpen} />
-        <main 
-          className={cn(
-            "flex-1 overflow-x-hidden transition-all duration-300 ease-in-out relative",
-            sidebarOpen ? "md:ml-[256px]" : "md:ml-[64px]"
-          )}
-        >
+        <Sidebar />
+        <main className="flex-1 overflow-x-hidden ml-[76px]">
           <div className="max-w-7xl mx-auto p-4 md:p-8 w-full h-full">
             {children}
           </div>
