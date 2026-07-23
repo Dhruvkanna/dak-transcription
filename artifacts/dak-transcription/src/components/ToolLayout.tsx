@@ -5,7 +5,7 @@ import {
   UploadCloud, AlertCircle, FileAudio, FileVideo,
   X, ChevronDown, ChevronRight, Check,
 } from 'lucide-react';
-import { useCreateJob, useGetJob, JobInputType } from '@workspace/api-client-react';
+import { useCreateJob, useGetJob, getGetJobQueryKey, JobInputType } from '@workspace/api-client-react';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -161,6 +161,7 @@ export function ToolLayout({ title, description, type, icon: Icon, renderResult 
   const createJob = useCreateJob();
   const { data: job } = useGetJob(activeJobId!, {
     query: {
+      queryKey: getGetJobQueryKey(activeJobId!),
       enabled: !!activeJobId,
       refetchInterval: (query) => {
         const s = query.state.data?.status;
@@ -368,6 +369,7 @@ export function ToolLayout({ title, description, type, icon: Icon, renderResult 
           </div>
         </div>
       );
+      default: return null;
     }
   };
 

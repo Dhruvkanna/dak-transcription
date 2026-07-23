@@ -11,7 +11,6 @@ export default function Dubbing() {
       type="dubbing"
       ratePerMinute={50}
       icon={Mic2}
-      acceptFormats="MP4, MOV, MP3, WAV"
       renderResult={(job) => (
         <div className="p-8 h-full flex flex-col">
           <div className="flex items-center justify-between mb-8">

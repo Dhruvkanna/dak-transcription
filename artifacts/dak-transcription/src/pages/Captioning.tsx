@@ -11,7 +11,6 @@ export default function Captioning() {
       type="captioning"
       ratePerMinute={12}
       icon={MonitorPlay}
-      acceptFormats="MP4, MOV"
       renderResult={(job) => (
         <div className="p-8 h-full flex flex-col">
           <div className="flex items-center justify-between mb-6">
