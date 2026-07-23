@@ -13,6 +13,8 @@ export interface Job {
   id: number;
   type: JobType;
   status: JobStatus;
+  /** @nullable */
+  jobName?: string | null;
   inputFilename: string;
   inputDurationMinutes: number;
   domain: JobDomain;

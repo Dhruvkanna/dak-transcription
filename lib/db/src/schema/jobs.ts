@@ -6,12 +6,13 @@ export const jobsTable = pgTable("jobs", {
   id: serial("id").primaryKey(),
   type: text("type").notNull(), // transcription | subtitling | captioning | dubbing
   status: text("status").notNull().default("pending"), // pending | processing | completed | failed
+  jobName: text("job_name"),                           // user-supplied friendly project name
   inputFilename: text("input_filename").notNull(),
   inputDurationMinutes: numeric("input_duration_minutes", { precision: 10, scale: 2 }).notNull(),
-  domain: text("domain").notNull().default("general"), // general | legal | medical | business
-  sourceLanguage: text("source_language").default("auto"), // "auto" or a language name
-  targetLanguage: text("target_language"),               // dubbing target language
-  translateTo: text("translate_to"),                     // translation of transcript/subtitles
+  domain: text("domain").notNull().default("general"),
+  sourceLanguage: text("source_language").default("auto"),
+  targetLanguage: text("target_language"),
+  translateTo: text("translate_to"),
   outputFormat: text("output_format"),
   outputUrl: text("output_url"),
   creditsUsed: numeric("credits_used", { precision: 10, scale: 2 }),

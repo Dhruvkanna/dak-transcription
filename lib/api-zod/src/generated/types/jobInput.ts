@@ -10,6 +10,7 @@ import type { JobInputType } from './jobInputType';
 
 export interface JobInput {
   type: JobInputType;
+  jobName?: string;
   inputFilename: string;
   inputDurationMinutes: number;
   domain: JobInputDomain;

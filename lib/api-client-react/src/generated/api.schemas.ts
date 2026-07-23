@@ -43,6 +43,8 @@ export interface Job {
   id: number;
   type: JobType;
   status: JobStatus;
+  /** @nullable */
+  jobName?: string | null;
   inputFilename: string;
   inputDurationMinutes: number;
   domain: JobDomain;
@@ -89,6 +91,7 @@ export const JobInputDomain = {
 
 export interface JobInput {
   type: JobInputType;
+  jobName?: string;
   inputFilename: string;
   inputDurationMinutes: number;
   domain: JobInputDomain;
