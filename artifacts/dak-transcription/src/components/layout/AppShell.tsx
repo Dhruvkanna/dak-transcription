@@ -93,7 +93,6 @@ const topItems: NavItem[] = [
 
 const middleItems: NavItem[] = [
   { name: 'History', path: '/history', icon: History },
-  { name: 'Team', path: '/team', icon: Users },
 ];
 
 const bottomItems: NavItem[] = [
