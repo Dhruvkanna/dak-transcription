@@ -10,7 +10,10 @@ if (!connectionString) {
   throw new Error("SUPABASE_DATABASE_URL must be set.");
 }
 
-export const pool = new Pool({ connectionString });
+export const pool = new Pool({
+  connectionString,
+  ssl: connectionString?.includes("supabase.com") ? { rejectUnauthorized: false } : undefined,
+});
 export const db = drizzle(pool, { schema });
 
 export * from "./schema";

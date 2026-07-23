@@ -52,9 +52,10 @@ if (fs.existsSync(frontendDist)) {
 }
 
 // ── Global JSON error handler ─────────────────────────────────────────────────
-app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+app.use((err: Error & { cause?: unknown }, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   logger.error(err, "Unhandled error");
-  res.status(500).json({ error: err.message ?? "Internal server error" });
+  const cause = err.cause instanceof Error ? err.cause.message : String(err.cause ?? "");
+  res.status(500).json({ error: err.message ?? "Internal server error", cause: cause || undefined });
 });
 
 export default app;
