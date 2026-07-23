@@ -1,0 +1,139 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,600;1,700&display=swap');
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-background-2: hsl(var(--background-2));
+  --color-background-3: hsl(var(--background-3));
+  --color-background-4: hsl(var(--background-4));
+  
+  --color-foreground: hsl(var(--foreground));
+  --color-foreground-2: hsl(var(--foreground-2));
+  --color-foreground-3: hsl(var(--foreground-3));
+  --color-foreground-4: hsl(var(--foreground-4));
+  
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-light: hsl(var(--accent-light));
+  
+  --color-success: hsl(var(--success));
+  --color-success-bg: hsl(var(--success-bg));
+  --color-danger: hsl(var(--danger));
+  --color-danger-bg: hsl(var(--danger-bg));
+  --color-warning: hsl(var(--warning));
+  --color-warning-bg: hsl(var(--warning-bg));
+  --color-info: hsl(var(--info));
+  --color-info-bg: hsl(var(--info-bg));
+
+  --font-sans: 'Inter', sans-serif;
+  --font-serif: 'Playfair Display', serif;
+  --font-display: 'Playfair Display', serif;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 4px);
+  --radius-xl: calc(var(--radius) + 8px);
+}
+
+:root {
+  --background: 45 20% 95%; /* #F4F3EE */
+  --background-2: 43 14% 90%; /* #E8E6E1 */
+  --background-3: 43 14% 86%; /* #E1DED6 */
+  --background-4: 46 16% 80%; /* #D6D2C4 */
+
+  --foreground: 0 0% 7%; /* #111111 */
+  --foreground-2: 0 0% 10%; /* #1A1A1A */
+  --foreground-3: 0 0% 35%; /* #5A5A5A */
+  --foreground-4: 0 0% 54%; /* #8A8A8A */
+
+  --primary: 0 0% 0%; /* #000000 */
+  --primary-foreground: 45 20% 95%;
+
+  --accent: 37 83% 31%; /* #92400E */
+  --accent-light: 37 50% 89%; /* #F3EAD3 */
+
+  --success: 161 94% 30%;
+  --success-bg: 131 38% 89%;
+  --danger: 0 72% 51%;
+  --danger-bg: 10 65% 91%;
+  --warning: 38 92% 44%;
+  --warning-bg: 37 50% 89%;
+  --info: 221 83% 53%;
+  --info-bg: 204 18% 90%;
+
+  --border: 46 16% 80%;
+  --input: 46 16% 80%;
+  --ring: 37 83% 31%;
+
+  --radius: 0.5rem; /* 8px default */
+}
+
+.dark {
+  --background: 0 0% 9%; /* #161616 */
+  --background-2: 0 0% 5%; /* #0D0D0D */
+  --background-3: 0 0% 12%; /* #1F1F1F */
+  --background-4: 0 0% 16%; /* #2A2A2A */
+
+  --foreground: 0 0% 95%; /* #F2F2F2 */
+  --foreground-2: 0 0% 87%; /* #DEDEDE */
+  --foreground-3: 0 0% 65%; /* #A6A6A6 */
+  --foreground-4: 0 0% 48%; /* #7A7A7A */
+
+  --primary: 0 0% 80%; /* #CCCCCC */
+  --primary-foreground: 0 0% 9%;
+
+  --accent: 44 65% 70%; /* #E4C980 */
+  --accent-light: 44 65% 15%; 
+
+  --success: 161 94% 50%;
+  --success-bg: 131 38% 15%;
+  --danger: 0 72% 65%;
+  --danger-bg: 10 65% 15%;
+  --warning: 38 92% 60%;
+  --warning-bg: 37 50% 15%;
+  --info: 221 83% 65%;
+  --info-bg: 204 18% 15%;
+
+  --border: 0 0% 23%; /* #3A3A3A */
+  --input: 0 0% 23%;
+  --ring: 44 65% 70%;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    font-size: 15px;
+    line-height: 1.6;
+    @apply bg-background text-foreground font-sans antialiased selection:bg-accent/20 selection:text-foreground;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-serif tracking-[-0.02em];
+  }
+}
+
+.page-enter {
+  animation: fadeSlideUp 300ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes fadeSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

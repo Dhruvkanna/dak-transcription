@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "DAK Transcription"
+version = "1.0.0"
+id = "artifacts/dak-transcription"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 20953
+
+[services.development]
+run = "pnpm --filter @workspace/dak-transcription run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/dak-transcription", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/dak-transcription/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20953"
+BASE_PATH = "/"

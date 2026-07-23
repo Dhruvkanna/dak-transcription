@@ -3,20 +3,27 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: DAK Transcription API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: jobs
+    description: Transcription jobs
+  - name: wallet
+    description: Credits wallet
+  - name: team
+    description: Team management
+  - name: dashboard
+    description: Dashboard stats and activity
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +31,451 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /jobs:
+    get:
+      operationId: listJobs
+      tags: [jobs]
+      summary: List all jobs
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [transcription, subtitling, captioning, dubbing]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, processing, completed, failed]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: List of jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Job"
+    post:
+      operationId: createJob
+      tags: [jobs]
+      summary: Submit a new job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobInput"
+      responses:
+        "201":
+          description: Job created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "400":
+          description: Invalid input
+
+  /jobs/{id}:
+    get:
+      operationId: getJob
+      tags: [jobs]
+      summary: Get a job by ID (also used for status polling)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Job details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "404":
+          description: Job not found
+    delete:
+      operationId: deleteJob
+      tags: [jobs]
+      summary: Delete a job
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Job not found
+
+  /jobs/{id}/status:
+    patch:
+      operationId: updateJobStatus
+      tags: [jobs]
+      summary: Update job status (internal worker use)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobStatusUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "404":
+          description: Job not found
+
+  /wallet:
+    get:
+      operationId: getWallet
+      tags: [wallet]
+      summary: Get current wallet balance and plan
+      responses:
+        "200":
+          description: Wallet info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+
+  /wallet/transactions:
+    get:
+      operationId: listTransactions
+      tags: [wallet]
+      summary: List credit transactions
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Transactions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Transaction"
+
+  /wallet/topup:
+    post:
+      operationId: topUpWallet
+      tags: [wallet]
+      summary: Add credits to wallet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TopUpInput"
+      responses:
+        "200":
+          description: Updated wallet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+        "400":
+          description: Invalid amount
+
+  /dashboard/stats:
+    get:
+      operationId: getDashboardStats
+      tags: [dashboard]
+      summary: Dashboard summary stats
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+  /dashboard/activity:
+    get:
+      operationId: getRecentActivity
+      tags: [dashboard]
+      summary: Recent job activity feed
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        "200":
+          description: Recent jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Job"
+
+  /team:
+    get:
+      operationId: listTeamMembers
+      tags: [team]
+      summary: List team members
+      responses:
+        "200":
+          description: Team members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TeamMember"
+    post:
+      operationId: inviteTeamMember
+      tags: [team]
+      summary: Invite a team member
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TeamMemberInvite"
+      responses:
+        "201":
+          description: Invited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamMember"
+        "400":
+          description: Invalid input
+
+  /team/{id}:
+    delete:
+      operationId: removeTeamMember
+      tags: [team]
+      summary: Remove a team member
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Removed
+        "404":
+          description: Not found
+
 components:
   schemas:
     HealthStatus:
       type: object
+      required: [status]
       properties:
         status:
           type: string
-      required:
-        - status
 
+    Job:
+      type: object
+      required: [id, type, status, inputFilename, inputDurationMinutes, domain, createdAt]
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+          enum: [transcription, subtitling, captioning, dubbing]
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        inputFilename:
+          type: string
+        inputDurationMinutes:
+          type: number
+        domain:
+          type: string
+          enum: [general, legal, medical, business]
+        targetLanguage:
+          type: ["string", "null"]
+        outputFormat:
+          type: ["string", "null"]
+        outputUrl:
+          type: ["string", "null"]
+        creditsUsed:
+          type: ["number", "null"]
+        progressPercent:
+          type: ["integer", "null"]
+        errorMessage:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: ["string", "null"]
+          format: date-time
+
+    JobInput:
+      type: object
+      required: [type, inputFilename, inputDurationMinutes, domain]
+      properties:
+        type:
+          type: string
+          enum: [transcription, subtitling, captioning, dubbing]
+        inputFilename:
+          type: string
+        inputDurationMinutes:
+          type: number
+        domain:
+          type: string
+          enum: [general, legal, medical, business]
+          default: general
+        targetLanguage:
+          type: string
+        outputFormat:
+          type: string
+
+    JobStatusUpdate:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        progressPercent:
+          type: integer
+        outputUrl:
+          type: string
+        creditsUsed:
+          type: number
+        errorMessage:
+          type: string
+
+    Wallet:
+      type: object
+      required: [balance, planType, totalSpent, totalJobsRun]
+      properties:
+        balance:
+          type: number
+        planType:
+          type: string
+          enum: [free, pro, firm]
+        totalSpent:
+          type: number
+        totalJobsRun:
+          type: integer
+        totalMinutesProcessed:
+          type: number
+
+    Transaction:
+      type: object
+      required: [id, type, amount, description, createdAt]
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+          enum: [credit, debit]
+        amount:
+          type: number
+        description:
+          type: string
+        jobId:
+          type: ["integer", "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    TopUpInput:
+      type: object
+      required: [amount]
+      properties:
+        amount:
+          type: number
+
+    DashboardStats:
+      type: object
+      required: [totalJobs, completedJobs, failedJobs, processingJobs, totalMinutesProcessed, creditBalance, totalCreditsSpent, jobsByType]
+      properties:
+        totalJobs:
+          type: integer
+        completedJobs:
+          type: integer
+        failedJobs:
+          type: integer
+        processingJobs:
+          type: integer
+        totalMinutesProcessed:
+          type: number
+        creditBalance:
+          type: number
+        totalCreditsSpent:
+          type: number
+        jobsByType:
+          $ref: "#/components/schemas/JobsByType"
+
+    JobsByType:
+      type: object
+      required: [transcription, subtitling, captioning, dubbing]
+      properties:
+        transcription:
+          type: integer
+        subtitling:
+          type: integer
+        captioning:
+          type: integer
+        dubbing:
+          type: integer
+
+    TeamMember:
+      type: object
+      required: [id, name, email, role, creditsUsed, joinedAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          enum: [admin, member]
+        creditsUsed:
+          type: number
+        joinedAt:
+          type: string
+          format: date-time
+
+    TeamMemberInvite:
+      type: object
+      required: [name, email, role]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          enum: [admin, member]

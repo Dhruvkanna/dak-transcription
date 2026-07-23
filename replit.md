@@ -1,10 +1,11 @@
-# [Project name]
+# DAK Transcription
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A professional audio/video processing SaaS with four AI tools: Transcription, Subtitling, Captioning, and AI Dubbing. Uses a credit-based billing system (Rs.) with team management.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/api-server run dev` — run the API server
+- `pnpm --filter @workspace/dak-transcription run dev` — run the frontend (served at `/`)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
@@ -14,6 +15,7 @@ _Replace the heading above with the project's name, and this line with one sente
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
+- Frontend: React + Vite, TanStack Query, Wouter, Tailwind CSS v4
 - API: Express 5
 - DB: PostgreSQL + Drizzle ORM
 - Validation: Zod (`zod/v4`), `drizzle-zod`
@@ -22,23 +24,42 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `lib/api-spec/openapi.yaml` — single source of truth for API contracts
+- `lib/db/src/schema/` — DB tables: `jobs.ts`, `wallet.ts`, `team.ts`
+- `artifacts/api-server/src/routes/` — Express routes: `jobs.ts`, `wallet.ts`, `dashboard.ts`, `team.ts`
+- `artifacts/dak-transcription/src/` — React frontend
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Job lifecycle is simulated with setTimeout in the API server (pending → processing → completed in ~7s). Replace with a real worker queue (BullMQ/Inngest) for production.
+- Wallet is a single-row table (no user auth yet). Extend with a users table when adding auth.
+- Credit deduction happens on job completion, not on submission. Credits are held conceptually but not locked.
+- No real file storage — file upload UI uses a filename + manual duration input as a stand-in for a real upload pipeline (Whisper/ElevenLabs APIs).
+- Dark mode is toggled via next-themes with class-based CSS variable switching.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- **Transcription** — Upload audio/video, get plain text output. Rs. 5/min.
+- **Subtitling** — Upload audio/video, get SRT/VTT subtitle file. Rs. 8/min.
+- **Captioning** — Upload audio/video, get MP4 with burned-in captions. Rs. 12/min.
+- **AI Dubbing** — Upload audio/video + select target language, get dubbed MP4/MP3. Rs. 50/min.
+- **Dashboard** — Live stats, recent activity feed, jobs-by-type breakdown.
+- **History** — Filterable table of all past jobs with download links.
+- **Billing** — Wallet balance, top-up form, transaction history.
 
-## User preferences
+## Credit pricing
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+| Tool | Rs./min | API cost/min | Margin |
+|------|---------|--------------|--------|
+| Transcription | 5 | 0.50 | 9x |
+| Subtitling | 8 | 0.50 | 15x |
+| Captioning | 12 | 0.50 | ~20x |
+| AI Dubbing | 50 | 8.40 | 6x |
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- After any `lib/*` change, run `pnpm run typecheck:libs` before running the API server typecheck — stale declarations cause false "no exported member" errors.
+- After OpenAPI spec changes, always re-run `pnpm --filter @workspace/api-spec run codegen` before touching routes or frontend hooks.
 
 ## Pointers
 
