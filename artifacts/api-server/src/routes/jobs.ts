@@ -12,16 +12,9 @@ import {
 } from "@workspace/api-zod";
 import { uploadStore } from "../lib/uploadStore.js";
 import { runTranscription } from "../services/transcribe.js";
+import { getRatePerMin, hasActivePlan, getOrCreateWallet } from "./payments.js";
 
 const router: IRouter = Router();
-
-// Credit rates per minute
-const RATES: Record<string, number> = {
-  transcription: 5,
-  subtitling: 8,
-  captioning: 12,
-  dubbing: 50,
-};
 
 function formatJob(job: typeof jobsTable.$inferSelect) {
   return {
@@ -45,40 +38,49 @@ function formatJob(job: typeof jobsTable.$inferSelect) {
   };
 }
 
-// ─── Helpers ───────────────────────────────────────────────────────────────
+// ─── Wallet helpers ────────────────────────────────────────────────────────────
 
-async function getOrCreateWallet() {
-  const wallets = await db.select().from(walletTable).limit(1);
-  if (wallets.length > 0) return wallets[0];
-  const [wallet] = await db.insert(walletTable).values({
-    balance: "500",
-    planType: "pro",
-    totalSpent: "0",
-    totalJobsRun: 0,
-    totalMinutesProcessed: "0",
-  }).returning();
-  return wallet;
-}
-
-async function deductCredits(creditsUsed: number, jobId: number, description: string) {
+/** Deduct INR from wallet atomically. Returns false if insufficient balance. */
+async function deductWallet(amountInr: number, jobId: number, description: string): Promise<boolean> {
   const wallet = await getOrCreateWallet();
+  const current = Number(wallet.balance);
+  if (current < amountInr) return false;
+
   await db.update(walletTable)
     .set({
-      balance: String(Math.max(0, Number(wallet.balance) - creditsUsed)),
-      totalSpent: String(Number(wallet.totalSpent) + creditsUsed),
-      totalJobsRun: wallet.totalJobsRun + 1,
-      totalMinutesProcessed: String(Number(wallet.totalMinutesProcessed) + creditsUsed / (RATES["transcription"] ?? 5)),
+      balance:               String(current - amountInr),
+      totalSpent:            String(Number(wallet.totalSpent) + amountInr),
+      totalJobsRun:          wallet.totalJobsRun + 1,
+      totalMinutesProcessed: String(Number(wallet.totalMinutesProcessed) + amountInr / 5), // rough minutes
     })
     .where(eq(walletTable.id, wallet.id));
+
   await db.insert(transactionsTable).values({
     type: "debit",
-    amount: String(creditsUsed),
+    amount: String(amountInr),
+    description,
+    jobId,
+  });
+
+  return true;
+}
+
+/** Refund INR back to wallet (called on job failure). */
+async function refundWallet(amountInr: number, jobId: number, description: string): Promise<void> {
+  if (amountInr <= 0) return;
+  const wallet = await getOrCreateWallet();
+  await db.update(walletTable)
+    .set({ balance: String(Number(wallet.balance) + amountInr) })
+    .where(eq(walletTable.id, wallet.id));
+  await db.insert(transactionsTable).values({
+    type: "refund",
+    amount: String(amountInr),
     description,
     jobId,
   });
 }
 
-// ─── Real async job processor ──────────────────────────────────────────────
+// ─── Real async job processor ──────────────────────────────────────────────────
 
 async function processJob(
   jobId: number,
@@ -86,7 +88,7 @@ async function processJob(
   filePath: string,
   uploadId: string | null,
   sourceLanguage: string,
-  inputDurationMinutes: number,
+  chargedInr: number,          // already deducted pre-flight
   originalFilename: string,
 ): Promise<void> {
   try {
@@ -96,57 +98,46 @@ async function processJob(
 
     const { output, durationMinutes } = await runTranscription(type, filePath, sourceLanguage);
 
-    const actualDuration = durationMinutes > 0 ? durationMinutes : inputDurationMinutes;
-    const rate = RATES[type] ?? 5;
-    const creditsUsed = actualDuration * rate;
-
     await db.update(jobsTable)
       .set({
         status: "completed",
         progressPercent: 100,
-        creditsUsed: String(creditsUsed),
-        inputDurationMinutes: String(actualDuration),
+        creditsUsed: String(chargedInr),   // records the INR amount charged
+        inputDurationMinutes: String(durationMinutes > 0 ? durationMinutes : 0),
         outputData: JSON.stringify(output),
         completedAt: new Date(),
       })
       .where(eq(jobsTable.id, jobId));
 
-    await deductCredits(
-      creditsUsed,
-      jobId,
-      `${type.charAt(0).toUpperCase() + type.slice(1)} — ${originalFilename}`,
-    );
   } catch (err: any) {
     console.error(`[jobs] processJob ${jobId} failed:`, err?.message ?? err);
+
     await db.update(jobsTable)
-      .set({
-        status: "failed",
-        errorMessage: err?.message ?? "Processing failed",
-        completedAt: new Date(),
-      })
+      .set({ status: "failed", errorMessage: err?.message ?? "Processing failed", completedAt: new Date() })
       .where(eq(jobsTable.id, jobId))
       .catch(() => void 0);
+
+    // Refund pre-deducted amount
+    await refundWallet(
+      chargedInr,
+      jobId,
+      `Refund — ${type} failed (${originalFilename})`,
+    );
   } finally {
-    // Clean up uploaded file from disk and in-memory store
-    try {
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    } catch { /* best-effort */ }
+    try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch { /* best-effort */ }
     if (uploadId) uploadStore.delete(uploadId);
   }
 }
 
-// ─── Routes ────────────────────────────────────────────────────────────────
+// ─── Routes ────────────────────────────────────────────────────────────────────
 
 router.get("/jobs", async (req, res): Promise<void> => {
   const parsed = ListJobsQueryParams.safeParse(req.query);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
 
   const { type, status, limit = 50, offset = 0 } = parsed.data;
   const conditions = [];
-  if (type) conditions.push(eq(jobsTable.type, type));
+  if (type)   conditions.push(eq(jobsTable.type, type));
   if (status) conditions.push(eq(jobsTable.status, status));
 
   const jobs = conditions.length > 0
@@ -160,60 +151,82 @@ router.get("/jobs", async (req, res): Promise<void> => {
 
 router.post("/jobs", async (req, res): Promise<void> => {
   const parsed = CreateJobBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
 
   const {
     type, jobName, inputFilename, inputDurationMinutes,
     domain, sourceLanguage, targetLanguage, translateTo, outputFormat,
   } = parsed.data;
 
-  // ── Credit pre-flight check ──────────────────────────────────────────────
-  const rate = RATES[type] ?? 5;
-  const estimatedCredits = Number(inputDurationMinutes) * rate;
+  // ── Wallet pre-flight ──────────────────────────────────────────────────────
   const wallet = await getOrCreateWallet();
-  if (Number(wallet.balance) < estimatedCredits) {
+
+  // Require an active plan
+  if (!hasActivePlan(wallet.planType)) {
     res.status(402).json({
-      error: "Insufficient credits",
-      required: estimatedCredits,
+      error: "An active subscription is required to run jobs. Please subscribe from the Billing page.",
+      code: "NO_ACTIVE_PLAN",
+    });
+    return;
+  }
+
+  // Check balance
+  const ratePerMin = getRatePerMin(type, wallet.planType);
+  const estimatedCost = Math.round(Number(inputDurationMinutes) * ratePerMin * 100) / 100;
+
+  if (Number(wallet.balance) < estimatedCost) {
+    res.status(402).json({
+      error: `Insufficient wallet balance (₹${Number(wallet.balance).toFixed(2)}). This job costs ₹${estimatedCost.toFixed(2)} (${Number(inputDurationMinutes).toFixed(1)} min × ₹${ratePerMin}/min). Please top up your wallet.`,
+      code: "INSUFFICIENT_BALANCE",
+      required: estimatedCost,
       available: Number(wallet.balance),
     });
     return;
   }
 
-  // Resolve uploaded file from uploadId
-  const uploadId = (req.body as any).uploadId as string | undefined;
-  const uploadEntry = uploadId ? uploadStore.get(uploadId) : undefined;
-  const filePath = uploadEntry?.filePath ?? null;
+  // Resolve uploaded file
+  const uploadId      = (req.body as any).uploadId as string | undefined;
+  const uploadEntry   = uploadId ? uploadStore.get(uploadId) : undefined;
+  const filePath      = uploadEntry?.filePath ?? null;
   const originalFilename = uploadEntry?.originalName ?? inputFilename;
 
+  // Insert job
   const [job] = await db.insert(jobsTable).values({
     type,
-    jobName: jobName ?? null,
+    jobName:              jobName ?? null,
     inputFilename,
-    inputFilePath: filePath,
+    inputFilePath:        filePath,
     inputDurationMinutes: String(inputDurationMinutes),
-    domain: domain ?? "general",
-    sourceLanguage: sourceLanguage ?? "auto",
-    targetLanguage: targetLanguage ?? null,
-    translateTo: translateTo ?? null,
-    outputFormat: outputFormat ?? null,
-    status: "pending",
-    progressPercent: 0,
+    domain:               domain ?? "general",
+    sourceLanguage:       sourceLanguage ?? "auto",
+    targetLanguage:       targetLanguage ?? null,
+    translateTo:          translateTo ?? null,
+    outputFormat:         outputFormat ?? null,
+    status:               "pending",
+    progressPercent:      0,
   }).returning();
+
+  // Deduct wallet pre-flight (BEFORE AI runs)
+  const deducted = await deductWallet(
+    estimatedCost,
+    job.id,
+    `${type.charAt(0).toUpperCase() + type.slice(1)} — ${originalFilename}`,
+  );
+
+  if (!deducted) {
+    // Race condition — another request drained the balance. Roll back job.
+    await db.delete(jobsTable).where(eq(jobsTable.id, job.id)).catch(() => void 0);
+    res.status(402).json({ error: "Wallet balance changed — please try again.", code: "RACE_CONDITION" });
+    return;
+  }
 
   res.status(201).json(formatJob(job));
 
-  // Fire-and-forget processing
+  // Fire-and-forget
   if (filePath) {
-    void processJob(
-      job.id, type, filePath, uploadId ?? null,
-      sourceLanguage ?? "auto", Number(inputDurationMinutes), originalFilename,
-    );
+    void processJob(job.id, type, filePath, uploadId ?? null, sourceLanguage ?? "auto", estimatedCost, originalFilename);
   } else {
-    // Fallback simulation (no file uploaded — dev/demo mode only)
+    // Dev/demo fallback — no real file
     setTimeout(() => {
       void (async () => {
         try {
@@ -223,18 +236,21 @@ router.post("/jobs", async (req, res): Promise<void> => {
 
           await new Promise(r => setTimeout(r, 6000));
 
-          const creditsUsed = Number(inputDurationMinutes) * rate;
           await db.update(jobsTable)
-            .set({ status: "completed", progressPercent: 100, creditsUsed: String(creditsUsed), completedAt: new Date() })
+            .set({
+              status: "completed",
+              progressPercent: 100,
+              creditsUsed: String(estimatedCost),
+              completedAt: new Date(),
+            })
             .where(eq(jobsTable.id, job.id));
-
-          await deductCredits(creditsUsed, job.id, `${type} — ${inputFilename} (simulated)`);
         } catch (err: any) {
           console.error(`[jobs] simulation ${job.id} failed:`, err?.message ?? err);
           await db.update(jobsTable)
             .set({ status: "failed", errorMessage: "Simulation failed", completedAt: new Date() })
             .where(eq(jobsTable.id, job.id))
             .catch(() => void 0);
+          await refundWallet(estimatedCost, job.id, `Refund — ${type} simulation failed`);
         }
       })();
     }, 1500);
@@ -249,22 +265,15 @@ router.get("/jobs/:id", async (req, res): Promise<void> => {
   res.json(formatJob(job));
 });
 
-// ─── Segments endpoint ─────────────────────────────────────────────────────
-
 router.get("/jobs/:id/segments", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid job id" }); return; }
-
   const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, id));
   if (!job) { res.status(404).json({ error: "Job not found" }); return; }
   if (job.status !== "completed") { res.status(409).json({ error: "Job not completed yet" }); return; }
   if (!job.outputData) { res.status(404).json({ error: "No output data available" }); return; }
-
-  try {
-    res.json(JSON.parse(job.outputData));
-  } catch {
-    res.status(500).json({ error: "Failed to parse output data" });
-  }
+  try { res.json(JSON.parse(job.outputData)); }
+  catch { res.status(500).json({ error: "Failed to parse output data" }); }
 });
 
 router.delete("/jobs/:id", async (req, res): Promise<void> => {
@@ -284,9 +293,9 @@ router.patch("/jobs/:id/status", async (req, res): Promise<void> => {
 
   const updates: Partial<typeof jobsTable.$inferInsert> = { status: body.data.status };
   if (body.data.progressPercent != null) updates.progressPercent = body.data.progressPercent;
-  if (body.data.outputUrl != null) updates.outputUrl = body.data.outputUrl;
-  if (body.data.creditsUsed != null) updates.creditsUsed = String(body.data.creditsUsed);
-  if (body.data.errorMessage != null) updates.errorMessage = body.data.errorMessage;
+  if (body.data.outputUrl       != null) updates.outputUrl       = body.data.outputUrl;
+  if (body.data.creditsUsed     != null) updates.creditsUsed     = String(body.data.creditsUsed);
+  if (body.data.errorMessage    != null) updates.errorMessage    = body.data.errorMessage;
   if (body.data.status === "completed" || body.data.status === "failed") updates.completedAt = new Date();
 
   const [job] = await db.update(jobsTable).set(updates).where(eq(jobsTable.id, params.data.id)).returning();

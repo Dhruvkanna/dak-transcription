@@ -1,0 +1,525 @@
+================================================================
+DAK TRANSCRIPTION — WALLET & CHARGING SYSTEM
+================================================================
+
+
+----------------------------------------------------------------
+SECRETS & ENV VARS
+----------------------------------------------------------------
+
+Secrets (never stored in code):
+  RAZORPAY_KEY_ID
+  RAZORPAY_KEY_SECRET
+
+Env vars (set on Render / Replit):
+  RAZORPAY_WEBHOOK_SECRET   = dak_webhook
+  RAZORPAY_PLAN_SOLO_ID     = plan_xxxxxxxxxxxxxxx
+  RAZORPAY_PLAN_PARTNERSHIP_ID = plan_xxxxxxxxxxxxxxx
+  RAZORPAY_PLAN_ENTERPRISE_ID  = plan_xxxxxxxxxxxxxxx
+  APP_BASE_URL              = https://your-render-url.com
+  RAZORPAY_SUB_TOTAL_COUNT  = 120
+
+
+================================================================
+FILE 1 — config.py
+================================================================
+
+import os
+
+def env(key, default=""): return os.environ.get(key, default)
+
+USD_TO_INR_RATE = 84.0
+
+# Wallet rates per operation per minute (INR)
+WALLET_RATES = {
+    "transcription": {"standard": 5.0,  "enterprise": 4.0},
+    "subtitling":    {"standard": 8.0,  "enterprise": 6.0},
+    "captioning":    {"standard": 12.0, "enterprise": 10.0},
+    "dubbing":       {"standard": 50.0, "enterprise": 40.0},
+}
+
+RAZORPAY_KEY_ID          = env("RAZORPAY_KEY_ID", "")
+RAZORPAY_KEY_SECRET      = env("RAZORPAY_KEY_SECRET", "")
+RAZORPAY_WEBHOOK_SECRET  = env("RAZORPAY_WEBHOOK_SECRET", "dak_webhook")
+RZP_SUB_TOTAL_COUNT      = int(env("RAZORPAY_SUB_TOTAL_COUNT", "120"))
+
+RZP_PLAN_IDS = {
+    "Solo":        env("RAZORPAY_PLAN_SOLO_ID",         ""),
+    "Partnership": env("RAZORPAY_PLAN_PARTNERSHIP_ID",  ""),
+    "Enterprise":  env("RAZORPAY_PLAN_ENTERPRISE_ID",   ""),
+}
+
+APP_BASE_URL = env("APP_BASE_URL", "https://your-render-url.com")
+
+PLAN_PRICES = {"Solo": 999, "Partnership": 2999, "Enterprise": 7999}
+TOPUP_MIN     = 200
+TOPUP_DEFAULT = 500
+
+
+================================================================
+FILE 2 — database.py  (wallet functions only)
+================================================================
+
+import os
+import psycopg2
+import psycopg2.extras
+
+def _conn():
+    return psycopg2.connect(
+        os.environ["LEGALSUITE_DB_URL"],
+        cursor_factory=psycopg2.extras.RealDictCursor
+    )
+
+
+def db_get_wallet(firm_id: str) -> float:
+    try:
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT credits FROM firms WHERE firm_id=%s", (firm_id,)
+            )
+            row = cur.fetchone()
+            return float(row["credits"]) if row else 0.0
+    except Exception:
+        return 0.0
+
+
+def db_deduct_wallet(firm_id: str, amount: float) -> bool:
+    """Atomic deduct — returns False if balance is insufficient."""
+    try:
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE firms SET credits=credits-%s "
+                "WHERE firm_id=%s AND credits>=%s RETURNING credits",
+                (amount, firm_id, amount)
+            )
+            return cur.fetchone() is not None
+    except Exception:
+        return False
+
+
+def db_add_wallet(firm_id: str, amount: float) -> None:
+    """Add credits back — used for refunds after a failed job."""
+    try:
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE firms SET credits=credits+%s WHERE firm_id=%s",
+                (amount, firm_id)
+            )
+    except Exception:
+        pass
+
+
+def db_apply_payment_once(
+    pay_id: str, firm_id: str, amount_inr: float, plan: str = ""
+) -> str:
+    """Idempotent payment apply.
+    Returns 'applied', 'duplicate', or 'failed'.
+    """
+    try:
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO processed_payments (payment_id, firm_id, amount_inr) "
+                "VALUES (%s, %s, %s) ON CONFLICT (payment_id) DO NOTHING",
+                (pay_id, firm_id, amount_inr)
+            )
+            if cur.rowcount == 0:
+                return "duplicate"
+            if plan:
+                cur.execute(
+                    "UPDATE firms SET credits=COALESCE(credits,0)+%s, "
+                    "billing_plan=%s WHERE firm_id=%s",
+                    (amount_inr, plan, firm_id)
+                )
+            else:
+                cur.execute(
+                    "UPDATE firms SET credits=COALESCE(credits,0)+%s "
+                    "WHERE firm_id=%s",
+                    (amount_inr, firm_id)
+                )
+            if cur.rowcount != 1:
+                conn.rollback()
+                return "failed"
+        return "applied"
+    except Exception:
+        return "failed"
+
+
+def db_log_generation(
+    firm_id: str, user_email: str, operation: str,
+    charged_inr: float, ai_cost_usd: float, doc_title: str = ""
+) -> None:
+    try:
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO generation_log "
+                "(firm_id, user_email, operation, charged_inr, ai_cost_usd, doc_title) "
+                "VALUES (%s,%s,%s,%s,%s,%s)",
+                (firm_id, user_email, operation, charged_inr, ai_cost_usd, doc_title)
+            )
+    except Exception:
+        pass
+
+
+================================================================
+FILE 3 — services/billing.py
+================================================================
+
+"""Wallet charging logic for DAK Transcription.
+
+Usage pattern in every tool route:
+    1. ok, error, charged = begin_operation(...)
+    2. if not ok: return error
+    3. try:
+           result = run_ai_job(...)
+           log_operation_success(...)
+           return result
+       except:
+           refund_operation(firm_id, charged)
+           raise
+"""
+from __future__ import annotations
+from config import WALLET_RATES
+from database import db_add_wallet, db_deduct_wallet, db_get_wallet, db_log_generation
+
+_ACTIVE_PLANS = {"solo", "partnership", "enterprise"}
+
+
+def _rate(operation: str, billing_plan: str) -> float:
+    plan = (billing_plan or "free").lower()
+    rate_key = "enterprise" if plan == "enterprise" else "standard"
+    rate_map = WALLET_RATES.get(operation, {})
+    return float(rate_map.get(rate_key, rate_map.get("standard", 0)))
+
+
+def has_active_plan(billing_plan: str) -> bool:
+    return (billing_plan or "free").lower() in _ACTIVE_PLANS
+
+
+def wallet_balance(firm_id: str) -> float:
+    return db_get_wallet(firm_id)
+
+
+def begin_operation(
+    firm_id: str,
+    operation: str,
+    billing_plan: str,
+    is_admin_unlimited: bool = False,
+    duration_minutes: float = 1.0,
+) -> tuple[bool, str, float]:
+    """Deduct wallet BEFORE running the job.
+
+    Returns (ok, error_message, amount_charged).
+    duration_minutes is the length of the uploaded audio/video.
+    """
+    if is_admin_unlimited:
+        return True, "", 0.0
+
+    rate_per_min = _rate(operation, billing_plan)
+    total = round(rate_per_min * duration_minutes, 2)
+
+    if total <= 0:
+        return True, "", 0.0
+
+    if not has_active_plan(billing_plan):
+        return False, (
+            "This feature requires an active subscription plan "
+            "(Solo, Partnership or Enterprise). "
+            "Please subscribe from the Billing page."
+        ), 0.0
+
+    if not db_deduct_wallet(firm_id, total):
+        balance = wallet_balance(firm_id)
+        return False, (
+            f"Insufficient wallet balance (Rs. {balance:.2f}). "
+            f"This job costs Rs. {total:.2f} "
+            f"({duration_minutes:.1f} min x Rs. {rate_per_min}/min). "
+            "Please top up your wallet."
+        ), 0.0
+
+    return True, "", total
+
+
+def refund_operation(firm_id: str, charged: float) -> None:
+    """Restore wallet after a failed job. Always call on exception."""
+    if charged > 0:
+        db_add_wallet(firm_id, charged)
+
+
+def log_operation_success(
+    firm_id: str,
+    user_email: str,
+    operation: str,
+    charged: float,
+    doc_title: str = "",
+) -> None:
+    """Write a generation log row ONLY after a successful job."""
+    try:
+        db_log_generation(firm_id, user_email, operation, charged, 0.0, doc_title)
+    except Exception:
+        pass
+
+
+================================================================
+FILE 4 — routes/billing.py
+================================================================
+
+"""Billing routes — subscriptions, wallet top-up, Razorpay webhook."""
+from __future__ import annotations
+import hashlib, hmac, json
+
+import razorpay
+from fastapi import APIRouter, Form, Request, HTTPException
+from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
+import os
+
+from config import (
+    RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET,
+    RZP_PLAN_IDS, RZP_SUB_TOTAL_COUNT, APP_BASE_URL,
+    PLAN_PRICES, TOPUP_MIN, TOPUP_DEFAULT, RAZORPAY_KEY_ID,
+)
+from database import db_apply_payment_once, db_get_wallet
+
+router    = APIRouter()
+_HERE     = os.path.dirname(os.path.dirname(__file__))
+templates = Jinja2Templates(directory=os.path.join(_HERE, "templates"))
+
+
+def _rzp():
+    return razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+
+
+def _sync_wallet(request: Request) -> float:
+    """Pull fresh balance from DB into session, return it."""
+    firm_id = request.session.get("firm_id", "")
+    if firm_id:
+        bal = db_get_wallet(firm_id)
+        request.session["wallet_balance"] = bal
+        return bal
+    return float(request.session.get("wallet_balance", 0))
+
+
+# ── GET /billing ──────────────────────────────────────────────
+@router.get("/billing")
+async def billing_page(request: Request, success: str = "", error: str = ""):
+    balance = _sync_wallet(request)
+    s = request.session
+    return templates.TemplateResponse(request, "workspace/billing.html", {
+        "user_email":    s.get("user_email", ""),
+        "firm_name":     s.get("firm_name", ""),
+        "billing_plan":  s.get("billing_plan", "free"),
+        "wallet_balance": balance,
+        "plan_prices":   PLAN_PRICES,
+        "topup_min":     TOPUP_MIN,
+        "topup_default": TOPUP_DEFAULT,
+        "rzp_key_id":    RAZORPAY_KEY_ID,
+        "success":       success,
+        "error":         error,
+        "active_page":   "billing",
+    })
+
+
+# ── POST /billing/subscribe/<plan> ────────────────────────────
+@router.post("/billing/subscribe/{plan_name}")
+async def billing_subscribe(request: Request, plan_name: str):
+    plan_name = plan_name.capitalize()
+    if plan_name not in PLAN_PRICES:
+        return RedirectResponse("/billing?error=Invalid+plan", status_code=302)
+
+    plan_id = RZP_PLAN_IDS.get(plan_name, "")
+    if not plan_id:
+        return RedirectResponse("/billing?error=Plan+not+configured", status_code=302)
+
+    s   = request.session
+    sub = _rzp().subscription.create({
+        "plan_id":     plan_id,
+        "total_count": RZP_SUB_TOTAL_COUNT,
+        "quantity":    1,
+        "notes": {
+            "firm_id":   s.get("firm_id", ""),
+            "firm_name": s.get("firm_name", ""),
+            "plan":      plan_name,
+        },
+    })
+    short_url = sub.get("short_url", "")
+    if short_url:
+        return RedirectResponse(short_url, status_code=302)
+    return RedirectResponse("/billing?error=No+checkout+URL+returned", status_code=302)
+
+
+# ── POST /billing/topup ───────────────────────────────────────
+@router.post("/billing/topup")
+async def billing_topup(request: Request, amount: int = Form(TOPUP_DEFAULT)):
+    if amount < TOPUP_MIN:
+        return RedirectResponse(
+            f"/billing?error=Minimum+top-up+is+Rs.{TOPUP_MIN}", status_code=302
+        )
+
+    s    = request.session
+    link = _rzp().payment_link.create({
+        "amount":      amount * 100,
+        "currency":    "INR",
+        "description": f"DAK Transcription wallet top-up Rs.{amount}",
+        "notes": {
+            "firm_id":   s.get("firm_id", ""),
+            "firm_name": s.get("firm_name", ""),
+            "topup":     "true",
+        },
+        "callback_url":    f"{APP_BASE_URL}/billing?success=Top-up+of+Rs.{amount}+initiated",
+        "callback_method": "get",
+    })
+    url = link.get("short_url", "")
+    if url and url.startswith("http"):
+        return RedirectResponse(url, status_code=302)
+    return RedirectResponse("/billing?error=Could+not+create+payment+link", status_code=302)
+
+
+# ── GET /api/wallet — live balance for navbar ─────────────────
+@router.get("/api/wallet")
+async def api_wallet(request: Request):
+    return JSONResponse({"balance": round(_sync_wallet(request), 2)})
+
+
+# ── POST /api/webhooks/razorpay ───────────────────────────────
+@router.post("/api/webhooks/razorpay")
+async def razorpay_webhook(request: Request):
+    body = await request.body()
+    sig  = request.headers.get("x-razorpay-signature", "")
+
+    if RAZORPAY_WEBHOOK_SECRET:
+        expected = hmac.new(
+            RAZORPAY_WEBHOOK_SECRET.encode(), body, hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(expected, sig):
+            raise HTTPException(status_code=400, detail="Bad signature")
+
+    try:
+        payload = json.loads(body)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Bad JSON")
+
+    event   = payload.get("event", "")
+    payment = payload.get("payload", {}).get("payment",      {}).get("entity", {})
+    plink   = payload.get("payload", {}).get("payment_link", {}).get("entity", {})
+
+    notes = {}
+    for src in (payment, plink):
+        n = src.get("notes") or {}
+        if isinstance(n, dict) and n.get("firm_id"):
+            notes = n
+            break
+
+    firm_id = notes.get("firm_id", "")
+    plan    = notes.get("plan", "")
+
+    if event == "subscription.charged":
+        amount_inr = payment.get("amount", 0) / 100
+        pay_id     = payment.get("id", "")
+        if not firm_id or not amount_inr:
+            raise HTTPException(500, "Missing firm_id or amount")
+        status = db_apply_payment_once(pay_id, firm_id, amount_inr, plan)
+        if status == "failed":
+            raise HTTPException(500, "Payment apply failed — Razorpay will retry")
+
+    elif event == "payment_link.paid":
+        amount_inr = payment.get("amount", 0) / 100
+        pay_id     = payment.get("id", "")
+        if not firm_id or not amount_inr:
+            raise HTTPException(500, "Missing firm_id or amount")
+        status = db_apply_payment_once(pay_id, firm_id, amount_inr)
+        if status == "failed":
+            raise HTTPException(500, "Payment apply failed — Razorpay will retry")
+
+    return JSONResponse({"status": "ok"})
+
+
+================================================================
+FILE 5 — DB SCHEMA  (run once on Supabase SQL editor)
+================================================================
+
+CREATE TABLE IF NOT EXISTS firms (
+    firm_id      TEXT PRIMARY KEY,
+    firm_name    TEXT NOT NULL,
+    admin_email  TEXT NOT NULL,
+    credits      INTEGER DEFAULT 0,
+    billing_plan TEXT NOT NULL DEFAULT 'free',
+    created_at   TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS processed_payments (
+    payment_id  TEXT PRIMARY KEY,
+    firm_id     TEXT NOT NULL,
+    amount_inr  REAL NOT NULL,
+    created_at  TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS generation_log (
+    id           SERIAL PRIMARY KEY,
+    firm_id      TEXT NOT NULL,
+    user_email   TEXT NOT NULL,
+    operation    TEXT NOT NULL,
+    charged_inr  REAL NOT NULL DEFAULT 0,
+    ai_cost_usd  REAL NOT NULL DEFAULT 0,
+    doc_title    TEXT,
+    created_at   TIMESTAMP DEFAULT NOW()
+);
+
+
+================================================================
+HOW TO USE IN ANY TOOL ROUTE
+================================================================
+
+from services.billing import begin_operation, refund_operation, log_operation_success
+
+# 1. Get duration of uploaded file in minutes (use ffprobe or mutagen)
+duration_min = file_duration_seconds / 60
+
+# 2. Charge wallet BEFORE the job
+ok, error, charged = begin_operation(
+    firm_id          = request.session["firm_id"],
+    operation        = "transcription",   # or subtitling / captioning / dubbing
+    billing_plan     = request.session["billing_plan"],
+    is_admin_unlimited = request.session.get("is_admin_unlimited", False),
+    duration_minutes = duration_min,
+)
+if not ok:
+    return show_error(error)
+
+# 3. Run the AI job
+try:
+    result = run_whisper(file)
+    log_operation_success(
+        firm_id    = request.session["firm_id"],
+        user_email = request.session["user_email"],
+        operation  = "transcription",
+        charged    = charged,
+        doc_title  = filename,
+    )
+    return result
+except Exception as e:
+    refund_operation(request.session["firm_id"], charged)  # always refund on failure
+    raise
+
+
+================================================================
+RATE CARD SUMMARY (for billing page UI)
+================================================================
+
+Feature         Rs./min     Enterprise Rs./min
+-----------     --------    ------------------
+Transcription   Rs. 5       Rs. 4
+Subtitling      Rs. 8       Rs. 6
+Captioning      Rs. 12      Rs. 10
+AI Dubbing      Rs. 50      Rs. 40
+
+Plan prices:
+  Solo          Rs. 999/month
+  Partnership   Rs. 2,999/month
+  Enterprise    Rs. 7,999/month
+
+Wallet top-up minimum: Rs. 200
+
+
+================================================================
+END OF DOCUMENT
+================================================================

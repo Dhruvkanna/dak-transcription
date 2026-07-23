@@ -4,42 +4,45 @@ import { getGetWalletQueryKey, getListTransactionsQueryKey } from '@workspace/ap
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatDate } from '@/lib/utils';
 import {
-  CreditCard, Wallet as WalletIcon, ArrowUpRight, ArrowDownRight,
-  Zap, CheckCircle2, Crown, Building2, Sparkles, X,
+  Wallet as WalletIcon, ArrowUpRight, ArrowDownRight, RotateCcw,
+  CheckCircle2, Crown, Building2, Sparkles, Users, AlertTriangle, ExternalLink,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface PlanConfig { label: string; priceInPaise: number; credits: number; description: string; }
-interface PackConfig { label: string; priceInPaise: number; credits: number; }
+interface PlanConfig { label: string; priceInr: number; description: string; }
+interface RateConfig { standard: number; enterprise: number; }
 
 const PLAN_FEATURES: Record<string, string[]> = {
-  starter:  ["2,000 credits / month", "All 4 AI tools", "SRT, VTT, TXT export", "Email support"],
-  pro:      ["6,000 credits / month", "All 4 AI tools", "All export formats incl. Word", "Priority processing", "Priority support"],
-  business: ["18,000 credits / month", "All 4 AI tools", "All export formats", "Highest priority processing", "Dedicated support", "Team access"],
+  solo:        ["All 4 AI tools", "Standard rates", "SRT, VTT, TXT export", "Email support"],
+  partnership: ["All 4 AI tools", "Standard rates", "All export formats incl. Word", "Priority processing", "Priority support"],
+  enterprise:  ["All 4 AI tools", "Enterprise rates (20% off)", "All export formats", "Highest priority processing", "Dedicated support"],
 };
 
 const PLAN_ICONS: Record<string, React.ReactNode> = {
-  starter:  <Zap size={22} />,
-  pro:      <Sparkles size={22} />,
-  business: <Building2 size={22} />,
+  solo:        <Users size={20} />,
+  partnership: <Sparkles size={20} />,
+  enterprise:  <Building2 size={20} />,
 };
 
-// ─── Razorpay loader ──────────────────────────────────────────────────────────
+const RATE_LABELS: Record<string, string> = {
+  transcription: "Transcription",
+  subtitling:    "Subtitling",
+  captioning:    "Captioning",
+  dubbing:       "AI Dubbing",
+};
 
-function loadRazorpay(): Promise<boolean> {
-  return new Promise(resolve => {
-    if ((window as any).Razorpay) { resolve(true); return; }
-    const script = document.createElement('script');
-    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-    script.onload = () => resolve(true);
-    script.onerror = () => resolve(false);
-    document.body.appendChild(script);
-  });
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function fmtInr(value: string | number | null | undefined) {
+  const n = Number(value ?? 0);
+  return `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -49,28 +52,29 @@ export default function Billing() {
   const { data: wallet, isLoading: walletLoading } = useGetWallet();
   const { data: transactions, isLoading: txLoading } = useListTransactions({ limit: 50 });
 
-  const [plans, setPlans] = useState<Record<string, PlanConfig>>({});
-  const [packs, setPacks] = useState<Record<string, PackConfig>>({});
-  const [keyId, setKeyId] = useState('');
-  const [loading, setLoading] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [plans, setPlans]       = useState<Record<string, PlanConfig>>({});
+  const [rates, setRates]       = useState<Record<string, RateConfig>>({});
+  const [topupMin, setTopupMin] = useState(200);
+  const [topupAmount, setTopupAmount] = useState('500');
+  const [loading, setLoading]   = useState<string | null>(null);
+  const [toast, setToast]       = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const BASE = import.meta.env.BASE_URL;
 
-  // Load config from API
   useEffect(() => {
-    fetch(`${BASE}api/payments/plans`).then(r => r.json()).then(d => {
-      setPlans(d.subscriptionPlans ?? {});
-      setPacks(d.creditPacks ?? {});
-    }).catch(() => {});
-    fetch(`${BASE}api/payments/config`).then(r => r.json()).then(d => {
-      setKeyId(d.keyId ?? '');
-    }).catch(() => {});
+    fetch(`${BASE}api/payments/plans`)
+      .then(r => r.json())
+      .then(d => {
+        setPlans(d.subscriptionPlans ?? {});
+        setRates(d.walletRates ?? {});
+        setTopupMin(d.topupMin ?? 200);
+      })
+      .catch(() => {});
   }, [BASE]);
 
   const showToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type });
-    setTimeout(() => setToast(null), 4000);
+    setTimeout(() => setToast(null), 5000);
   };
 
   const refreshWallet = () => {
@@ -78,135 +82,100 @@ export default function Billing() {
     queryClient.invalidateQueries({ queryKey: getListTransactionsQueryKey() });
   };
 
-  // ── Credit pack purchase ─────────────────────────────────────────────────
-
-  const buyPack = useCallback(async (packId: string) => {
-    if (!keyId) { showToast("Payment system not configured", "error"); return; }
-    setLoading(`pack-${packId}`);
-    const loaded = await loadRazorpay();
-    if (!loaded) { showToast("Failed to load payment gateway", "error"); setLoading(null); return; }
-
-    try {
-      const orderRes = await fetch(`${BASE}api/payments/create-order`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ packId }),
-      });
-      const order = await orderRes.json();
-      if (!orderRes.ok) throw new Error(order.error ?? "Order creation failed");
-
-      const rzp = new (window as any).Razorpay({
-        key: keyId,
-        order_id: order.orderId,
-        amount: order.amount,
-        currency: "INR",
-        name: "DAK Transcription",
-        description: `${order.pack.label} — ${order.pack.credits} credits`,
-        theme: { color: "#7C6B5A" },
-        handler: async (response: any) => {
-          const verifyRes = await fetch(`${BASE}api/payments/verify-payment`, {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...response, packId }),
-          });
-          const result = await verifyRes.json();
-          if (verifyRes.ok) {
-            showToast(`✓ ${order.pack.credits} credits added to your wallet!`, "success");
-            refreshWallet();
-          } else {
-            showToast(result.error ?? "Payment verification failed", "error");
-          }
-        },
-        modal: { ondismiss: () => setLoading(null) },
-      });
-      rzp.open();
-    } catch (err: any) {
-      showToast(err.message ?? "Something went wrong", "error");
-    } finally {
-      setLoading(null);
-    }
-  }, [keyId, BASE]);
-
-  // ── Subscription purchase ────────────────────────────────────────────────
+  // ── Subscribe to a plan → redirect to Razorpay short_url ────────────────
 
   const subscribeToPlan = useCallback(async (tier: string) => {
-    if (!keyId) { showToast("Payment system not configured", "error"); return; }
     setLoading(`plan-${tier}`);
-    const loaded = await loadRazorpay();
-    if (!loaded) { showToast("Failed to load payment gateway", "error"); setLoading(null); return; }
-
     try {
-      const subRes = await fetch(`${BASE}api/payments/create-subscription`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+      const res = await fetch(`${BASE}api/payments/create-subscription`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tier }),
       });
-      const sub = await subRes.json();
-      if (!subRes.ok) throw new Error(sub.error ?? "Subscription creation failed");
-
-      const plan = plans[tier];
-      const rzp = new (window as any).Razorpay({
-        key: keyId,
-        subscription_id: sub.subscriptionId,
-        name: "DAK Transcription",
-        description: `${plan?.label ?? tier} Plan — ₹${(plan?.priceInPaise ?? 0) / 100}/month`,
-        theme: { color: "#7C6B5A" },
-        handler: async (response: any) => {
-          const verifyRes = await fetch(`${BASE}api/payments/verify-subscription`, {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...response, tier }),
-          });
-          const result = await verifyRes.json();
-          if (verifyRes.ok) {
-            showToast(`✓ ${plan?.label} Plan activated! ${result.creditsAdded} credits added.`, "success");
-            refreshWallet();
-          } else {
-            showToast(result.error ?? "Subscription verification failed", "error");
-          }
-        },
-        modal: { ondismiss: () => setLoading(null) },
-      });
-      rzp.open();
-    } catch (err: any) {
-      showToast(err.message ?? "Something went wrong", "error");
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error ?? "Failed to create subscription", "error"); return; }
+      if (data.shortUrl) {
+        window.location.href = data.shortUrl;
+      } else {
+        showToast("No checkout URL returned — please try again.", "error");
+      }
+    } catch {
+      showToast("Something went wrong", "error");
     } finally {
       setLoading(null);
     }
-  }, [keyId, BASE, plans]);
+  }, [BASE]);
 
   // ── Cancel subscription ──────────────────────────────────────────────────
 
   const cancelSubscription = async () => {
-    if (!confirm("Cancel your subscription? You keep your remaining credits.")) return;
+    if (!confirm("Cancel your subscription? You keep your remaining balance.")) return;
     setLoading("cancel");
-    const res = await fetch(`${BASE}api/payments/subscription`, { method: "DELETE" });
-    const data = await res.json();
-    if (res.ok) { showToast("Subscription cancelled.", "success"); refreshWallet(); }
-    else showToast(data.error ?? "Failed to cancel", "error");
-    setLoading(null);
+    try {
+      const res = await fetch(`${BASE}api/payments/subscription`, { method: "DELETE" });
+      const data = await res.json();
+      if (res.ok) { showToast("Subscription cancelled. Plan set to Free.", "success"); refreshWallet(); }
+      else showToast(data.error ?? "Failed to cancel", "error");
+    } finally {
+      setLoading(null);
+    }
   };
 
-  const currentPlan = wallet?.planType ?? "free";
-  const isSubscribed = currentPlan !== "free";
+  // ── Wallet top-up → redirect to Razorpay payment link ───────────────────
+
+  const topUp = useCallback(async () => {
+    const amount = parseInt(topupAmount, 10);
+    if (!amount || amount < topupMin) {
+      showToast(`Minimum top-up is ₹${topupMin}`, "error");
+      return;
+    }
+    setLoading("topup");
+    try {
+      const res = await fetch(`${BASE}api/payments/create-payment-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount }),
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error ?? "Failed to create payment link", "error"); return; }
+      if (data.shortUrl) {
+        window.location.href = data.shortUrl;
+      } else {
+        showToast("No payment link returned — please try again.", "error");
+      }
+    } catch {
+      showToast("Something went wrong", "error");
+    } finally {
+      setLoading(null);
+    }
+  }, [BASE, topupAmount, topupMin]);
+
+  const currentPlan  = wallet?.planType ?? "free";
+  const isSubscribed = ["solo", "partnership", "enterprise"].includes(currentPlan);
+  const balance      = Number(wallet?.balance ?? 0);
 
   return (
     <div className="page-enter space-y-10 pb-10 relative">
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-6 right-6 z-50 flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-xl text-sm font-medium transition-all
+        <div className={`fixed top-6 right-6 z-50 flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-xl text-sm font-medium
           ${toast.type === 'success' ? 'bg-success text-white' : 'bg-danger text-white'}`}>
-          {toast.type === 'success' ? <CheckCircle2 size={16} /> : <X size={16} />}
+          {toast.type === 'success' ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
           {toast.message}
         </div>
       )}
 
       <div>
-        <h1 className="text-3xl font-serif font-bold tracking-tight mb-2">Billing & Credits</h1>
-        <p className="text-foreground-3">Manage your plan, top up credits, and view transaction history.</p>
+        <h1 className="text-3xl font-serif font-bold tracking-tight mb-2">Billing & Wallet</h1>
+        <p className="text-foreground-3">Manage your subscription, top up your wallet, and view transaction history.</p>
       </div>
 
-      {/* Wallet balance card + transaction history */}
+      {/* Wallet + transactions */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
+        {/* Left: wallet card + top-up + cancel */}
         <div className="space-y-4">
-          {/* Balance card */}
           <Card className="bg-foreground text-background border-none overflow-hidden relative">
             <div className="absolute top-0 right-0 w-32 h-32 bg-background/5 rounded-bl-full -mr-10 -mt-10" />
             <CardContent className="p-8">
@@ -215,33 +184,86 @@ export default function Billing() {
                   <WalletIcon size={24} className="text-accent-light" />
                 </div>
                 <Badge className="bg-accent text-accent-foreground uppercase tracking-widest text-[10px] font-bold border-none flex items-center gap-1">
-                  {currentPlan !== "free" && <Crown size={10} />}
-                  {currentPlan.toUpperCase()} PLAN
+                  {isSubscribed && <Crown size={10} />}
+                  {currentPlan.toUpperCase()}
                 </Badge>
               </div>
-              <p className="text-background/70 text-sm font-medium mb-1">Available Credits</p>
+              <p className="text-background/70 text-sm font-medium mb-1">Wallet Balance</p>
               <h2 className="text-4xl font-serif font-bold font-mono tracking-tight text-accent-light mb-8">
-                {walletLoading ? '...' : formatCurrency(wallet?.balance || 0)}
+                {walletLoading ? '…' : fmtInr(wallet?.balance)}
               </h2>
               <div className="grid grid-cols-2 gap-4 pt-6 border-t border-background/10">
                 <div>
                   <p className="text-xs text-background/60 mb-1">Total Spent</p>
-                  <p className="font-mono font-medium">{formatCurrency(wallet?.totalSpent || 0)}</p>
+                  <p className="font-mono font-medium">{fmtInr(wallet?.totalSpent)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-background/60 mb-1">Minutes Processed</p>
-                  <p className="font-medium">{wallet?.totalMinutesProcessed ?? 0} min</p>
+                  <p className="text-xs text-background/60 mb-1">Jobs Run</p>
+                  <p className="font-medium">{wallet?.totalJobsRun ?? 0}</p>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* Cancel subscription (if active) */}
-          {isSubscribed && (
-            <Card className="border-danger/30 bg-danger-bg/30">
+          {/* No active plan warning */}
+          {!isSubscribed && (
+            <Card className="border-amber-300/50 bg-amber-50/50">
               <CardContent className="p-5">
-                <p className="text-sm font-medium text-foreground mb-1">Active: {currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)} Plan</p>
-                <p className="text-xs text-foreground-4 mb-4">Your plan renews monthly. Cancelling stops future renewals but keeps existing credits.</p>
+                <div className="flex gap-3">
+                  <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-amber-900 mb-1">No active plan</p>
+                    <p className="text-xs text-amber-700">An active subscription is required to run transcription jobs. Choose a plan below.</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Top-up */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Top Up Wallet</CardTitle>
+              <CardDescription className="text-xs">Minimum ₹{topupMin}. You pay exactly what you add.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex gap-2">
+                {[500, 1000, 2000].map(v => (
+                  <button key={v}
+                    onClick={() => setTopupAmount(String(v))}
+                    className={`text-xs px-3 py-1.5 rounded-lg border transition-colors
+                      ${topupAmount === String(v)
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'border-border text-foreground-3 hover:border-primary/50'}`}>
+                    ₹{v.toLocaleString('en-IN')}
+                  </button>
+                ))}
+              </div>
+              <div>
+                <Label className="text-xs text-foreground-4 mb-1.5 block">Custom amount (₹)</Label>
+                <Input
+                  type="number"
+                  min={topupMin}
+                  value={topupAmount}
+                  onChange={e => setTopupAmount(e.target.value)}
+                  placeholder={`Min ₹${topupMin}`}
+                  className="font-mono"
+                />
+              </div>
+              <Button className="w-full" onClick={topUp} disabled={!!loading}>
+                {loading === "topup" ? "Redirecting…" : (
+                  <><ExternalLink size={14} className="mr-2" />Pay ₹{parseInt(topupAmount || '0', 10).toLocaleString('en-IN')} via Razorpay</>
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Cancel subscription */}
+          {isSubscribed && (
+            <Card className="border-danger/30">
+              <CardContent className="p-5">
+                <p className="text-sm font-medium mb-1">Active: {plans[currentPlan]?.label ?? currentPlan} Plan</p>
+                <p className="text-xs text-foreground-4 mb-4">Cancelling stops future renewals. Your existing wallet balance is not affected.</p>
                 <Button size="sm" variant="outline" className="w-full border-danger/40 text-danger hover:bg-danger hover:text-white text-xs"
                   onClick={cancelSubscription} disabled={loading === "cancel"}>
                   {loading === "cancel" ? "Cancelling…" : "Cancel Subscription"}
@@ -251,11 +273,11 @@ export default function Billing() {
           )}
         </div>
 
-        {/* Transaction history */}
+        {/* Right: transaction history */}
         <Card className="lg:col-span-2 flex flex-col min-h-[420px]">
           <CardHeader>
             <CardTitle>Transaction History</CardTitle>
-            <CardDescription>Credit top-ups and job deductions.</CardDescription>
+            <CardDescription>All wallet credits, deductions, and refunds.</CardDescription>
           </CardHeader>
           <CardContent className="flex-1 p-0 overflow-auto border-t border-border">
             {txLoading ? (
@@ -268,34 +290,47 @@ export default function Billing() {
                   <TableRow>
                     <TableHead>Date</TableHead>
                     <TableHead>Description</TableHead>
-                    <TableHead className="text-right">Credits</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {transactions.map(tx => (
-                    <TableRow key={tx.id}>
-                      <TableCell className="text-foreground-4 text-xs whitespace-nowrap">{formatDate(tx.createdAt)}</TableCell>
-                      <TableCell className="font-medium">
-                        <div className="flex items-center gap-3">
-                          <div className={`p-1.5 rounded-full ${tx.type === 'credit' ? 'bg-success-bg text-success' : 'bg-background-3 text-foreground-3'}`}>
-                            {tx.type === 'credit' ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+                  {transactions.map(tx => {
+                    const isCredit = tx.type === 'credit';
+                    const isRefund = tx.type === 'refund';
+                    return (
+                      <TableRow key={tx.id}>
+                        <TableCell className="text-foreground-4 text-xs whitespace-nowrap">{formatDate(tx.createdAt)}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            <div className={`p-1.5 rounded-full shrink-0 ${
+                              isCredit ? 'bg-success-bg text-success' :
+                              isRefund ? 'bg-blue-50 text-blue-500' :
+                              'bg-background-3 text-foreground-3'}`}>
+                              {isCredit ? <ArrowUpRight size={14} /> :
+                               isRefund ? <RotateCcw size={14} /> :
+                               <ArrowDownRight size={14} />}
+                            </div>
+                            <span className="text-sm">{tx.description}</span>
+                            {tx.jobId && (
+                              <Badge variant="outline" className="text-[10px] font-mono py-0 shrink-0">
+                                Job #{tx.jobId}
+                              </Badge>
+                            )}
                           </div>
-                          <span className="text-sm">{tx.description}</span>
-                          {tx.jobId && <Badge variant="outline" className="text-[10px] font-mono py-0 ml-1">Job #{tx.jobId}</Badge>}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right font-mono font-medium">
-                        <span className={tx.type === 'credit' ? 'text-success' : 'text-foreground'}>
-                          {tx.type === 'credit' ? '+' : '-'}{formatCurrency(tx.amount)}
-                        </span>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                        </TableCell>
+                        <TableCell className="text-right font-mono font-medium whitespace-nowrap">
+                          <span className={isCredit ? 'text-success' : isRefund ? 'text-blue-500' : 'text-foreground'}>
+                            {isCredit ? '+' : isRefund ? '↩' : '-'}{fmtInr(tx.amount)}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             ) : (
               <div className="flex flex-col items-center justify-center py-16 text-foreground-4">
-                <CreditCard size={32} className="mb-4 text-border" />
+                <WalletIcon size={32} className="mb-4 text-border" />
                 <p>No transactions yet.</p>
               </div>
             )}
@@ -306,27 +341,29 @@ export default function Billing() {
       {/* ── Subscription Plans ─────────────────────────────────────────────── */}
       <section>
         <div className="mb-6">
-          <h2 className="text-xl font-serif font-semibold tracking-tight mb-1">Monthly Plans</h2>
-          <p className="text-foreground-3 text-sm">Subscribe for a monthly credit allowance. Cancel anytime.</p>
+          <h2 className="text-xl font-serif font-semibold tracking-tight mb-1">Subscription Plans</h2>
+          <p className="text-foreground-3 text-sm">
+            Subscribe to unlock the AI tools. You'll be redirected to Razorpay to complete payment. Cancel anytime.
+          </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {Object.entries(plans).map(([tier, plan]) => {
-            const isActive = currentPlan === tier;
-            const isPro = tier === "pro";
-            const features = PLAN_FEATURES[tier] ?? [];
+            const isActive    = currentPlan === tier;
+            const isPartner   = tier === "partnership";
+            const features    = PLAN_FEATURES[tier] ?? [];
 
             return (
               <Card key={tier} className={`relative flex flex-col transition-shadow hover:shadow-md
-                ${isPro ? 'border-primary shadow-sm ring-1 ring-primary/20' : ''}
-                ${isActive ? 'bg-primary/5 border-primary' : ''}`}>
-                {isPro && (
+                ${isPartner ? 'border-primary shadow-sm ring-1 ring-primary/20' : ''}
+                ${isActive  ? 'bg-primary/5 border-primary' : ''}`}>
+                {isPartner && (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                    <Badge className="bg-primary text-primary-foreground text-[10px] uppercase tracking-widest px-3">Most Popular</Badge>
+                    <Badge className="bg-primary text-primary-foreground text-[10px] uppercase tracking-widest px-3">Popular</Badge>
                   </div>
                 )}
                 <CardContent className="p-7 flex flex-col flex-1">
-                  <div className={`w-11 h-11 rounded-xl flex items-center justify-center mb-5
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-5
                     ${isActive ? 'bg-primary text-primary-foreground' : 'bg-background-3 text-foreground-3'}`}>
                     {PLAN_ICONS[tier]}
                   </div>
@@ -335,14 +372,14 @@ export default function Billing() {
                   <p className="text-sm text-foreground-4 mb-4">{plan.description}</p>
 
                   <div className="mb-6">
-                    <span className="text-3xl font-bold font-mono">₹{(plan.priceInPaise / 100).toLocaleString('en-IN')}</span>
+                    <span className="text-3xl font-bold font-mono">₹{(plan.priceInr ?? 0).toLocaleString('en-IN')}</span>
                     <span className="text-foreground-4 text-sm">/month</span>
                   </div>
 
                   <ul className="space-y-2.5 mb-8 flex-1">
                     {features.map(f => (
                       <li key={f} className="flex items-start gap-2.5 text-sm">
-                        <CheckCircle2 size={15} className="text-success mt-0.5 shrink-0" />
+                        <CheckCircle2 size={14} className="text-success mt-0.5 shrink-0" />
                         {f}
                       </li>
                     ))}
@@ -350,13 +387,18 @@ export default function Billing() {
 
                   {isActive ? (
                     <Button className="w-full" disabled variant="outline">
-                      <CheckCircle2 size={15} className="mr-2 text-success" /> Current Plan
+                      <CheckCircle2 size={14} className="mr-2 text-success" /> Current Plan
                     </Button>
                   ) : (
-                    <Button className="w-full" variant={isPro ? "default" : "outline"}
+                    <Button className="w-full" variant={isPartner ? "default" : "outline"}
                       onClick={() => subscribeToPlan(tier)}
                       disabled={!!loading || isSubscribed}>
-                      {loading === `plan-${tier}` ? "Opening…" : isSubscribed ? "Change plan — cancel first" : `Subscribe to ${plan.label}`}
+                      {loading === `plan-${tier}` ? "Redirecting…" : (
+                        isSubscribed
+                          ? "Cancel current plan first"
+                          : <><ExternalLink size={13} className="mr-2" />Subscribe — ₹{(plan.priceInr ?? 0).toLocaleString('en-IN')}/mo</>
+
+                      )}
                     </Button>
                   )}
                 </CardContent>
@@ -366,42 +408,35 @@ export default function Billing() {
         </div>
       </section>
 
-      {/* ── Credit Packs ──────────────────────────────────────────────────── */}
-      <section>
-        <div className="mb-6">
-          <h2 className="text-xl font-serif font-semibold tracking-tight mb-1">Credit Packs</h2>
-          <p className="text-foreground-3 text-sm">One-time top-ups. Buy credits whenever you need them, no commitment.</p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {Object.entries(packs).map(([packId, pack]) => {
-            const rupees = pack.priceInPaise / 100;
-            const rate = (pack.credits / rupees).toFixed(2);
-
-            return (
-              <Card key={packId} className="flex flex-col hover:shadow-md transition-shadow">
-                <CardContent className="p-6 flex flex-col flex-1">
-                  <div className="flex items-center justify-between mb-5">
-                    <span className="text-sm font-semibold text-foreground-3 uppercase tracking-wider">{pack.label}</span>
-                    <Badge variant="outline" className="text-[10px] font-mono">{rate} cr/₹</Badge>
-                  </div>
-
-                  <div className="mb-1">
-                    <span className="text-2xl font-bold font-mono">{pack.credits.toLocaleString('en-IN')}</span>
-                    <span className="text-foreground-4 text-sm ml-1">credits</span>
-                  </div>
-                  <p className="text-foreground-4 text-xs mb-6">₹{rupees.toLocaleString('en-IN')} one-time</p>
-
-                  <Button size="sm" variant="outline" className="w-full mt-auto"
-                    onClick={() => buyPack(packId)} disabled={!!loading}>
-                    {loading === `pack-${packId}` ? "Opening…" : `Buy for ₹${rupees.toLocaleString('en-IN')}`}
-                  </Button>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      </section>
+      {/* ── Rate Card ─────────────────────────────────────────────────────── */}
+      {Object.keys(rates).length > 0 && (
+        <section>
+          <div className="mb-6">
+            <h2 className="text-xl font-serif font-semibold tracking-tight mb-1">Rate Card</h2>
+            <p className="text-foreground-3 text-sm">Per-minute charges deducted from your wallet before each job runs.</p>
+          </div>
+          <Card>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Feature</TableHead>
+                  <TableHead className="text-right">Solo / Partnership</TableHead>
+                  <TableHead className="text-right">Enterprise</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {Object.entries(rates).map(([op, r]) => (
+                  <TableRow key={op}>
+                    <TableCell className="font-medium">{RATE_LABELS[op] ?? op}</TableCell>
+                    <TableCell className="text-right font-mono">₹{r.standard}/min</TableCell>
+                    <TableCell className="text-right font-mono text-success">₹{r.enterprise}/min</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
+        </section>
+      )}
 
     </div>
   );
