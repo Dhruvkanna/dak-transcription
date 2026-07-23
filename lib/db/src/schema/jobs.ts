@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 
 export const jobsTable = pgTable("jobs", {
   id: serial("id").primaryKey(),
+  userId: integer("user_id"),  // nullable for migration
   type: text("type").notNull(), // transcription | subtitling | captioning | dubbing
   status: text("status").notNull().default("pending"), // pending | processing | completed | failed
   jobName: text("job_name"),

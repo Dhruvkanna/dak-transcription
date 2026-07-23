@@ -41,8 +41,8 @@ function formatJob(job: typeof jobsTable.$inferSelect) {
 // ─── Wallet helpers ────────────────────────────────────────────────────────────
 
 /** Deduct INR from wallet atomically. Returns false if insufficient balance. */
-async function deductWallet(amountInr: number, jobId: number, description: string): Promise<boolean> {
-  const wallet = await getOrCreateWallet();
+async function deductWallet(userId: number, amountInr: number, jobId: number, description: string): Promise<boolean> {
+  const wallet = await getOrCreateWallet(userId);
   const current = Number(wallet.balance);
   if (current < amountInr) return false;
 
@@ -51,11 +51,12 @@ async function deductWallet(amountInr: number, jobId: number, description: strin
       balance:               String(current - amountInr),
       totalSpent:            String(Number(wallet.totalSpent) + amountInr),
       totalJobsRun:          wallet.totalJobsRun + 1,
-      totalMinutesProcessed: String(Number(wallet.totalMinutesProcessed) + amountInr / 5), // rough minutes
+      totalMinutesProcessed: String(Number(wallet.totalMinutesProcessed) + amountInr / 5),
     })
     .where(eq(walletTable.id, wallet.id));
 
   await db.insert(transactionsTable).values({
+    userId,
     type: "debit",
     amount: String(amountInr),
     description,
@@ -66,13 +67,14 @@ async function deductWallet(amountInr: number, jobId: number, description: strin
 }
 
 /** Refund INR back to wallet (called on job failure). */
-async function refundWallet(amountInr: number, jobId: number, description: string): Promise<void> {
+async function refundWallet(userId: number, amountInr: number, jobId: number, description: string): Promise<void> {
   if (amountInr <= 0) return;
-  const wallet = await getOrCreateWallet();
+  const wallet = await getOrCreateWallet(userId);
   await db.update(walletTable)
     .set({ balance: String(Number(wallet.balance) + amountInr) })
     .where(eq(walletTable.id, wallet.id));
   await db.insert(transactionsTable).values({
+    userId,
     type: "refund",
     amount: String(amountInr),
     description,
@@ -83,12 +85,13 @@ async function refundWallet(amountInr: number, jobId: number, description: strin
 // ─── Real async job processor ──────────────────────────────────────────────────
 
 async function processJob(
+  userId: number,
   jobId: number,
   type: string,
   filePath: string,
   uploadId: string | null,
   sourceLanguage: string,
-  chargedInr: number,          // already deducted pre-flight
+  chargedInr: number,
   originalFilename: string,
 ): Promise<void> {
   try {
@@ -118,11 +121,7 @@ async function processJob(
       .catch(() => void 0);
 
     // Refund pre-deducted amount
-    await refundWallet(
-      chargedInr,
-      jobId,
-      `Refund — ${type} failed (${originalFilename})`,
-    );
+    await refundWallet(userId, chargedInr, jobId, `Refund — ${type} failed (${originalFilename})`);
   } finally {
     try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch { /* best-effort */ }
     if (uploadId) uploadStore.delete(uploadId);
@@ -159,7 +158,8 @@ router.post("/jobs", async (req, res): Promise<void> => {
   } = parsed.data;
 
   // ── Wallet pre-flight ──────────────────────────────────────────────────────
-  const wallet = await getOrCreateWallet();
+  const userId = req.auth!.userId;
+  const wallet = await getOrCreateWallet(userId);
 
   // Check balance
   const ratePerMin = getRatePerMin(type);
@@ -183,6 +183,7 @@ router.post("/jobs", async (req, res): Promise<void> => {
 
   // Insert job
   const [job] = await db.insert(jobsTable).values({
+    userId,
     type,
     jobName:              jobName ?? null,
     inputFilename,
@@ -199,6 +200,7 @@ router.post("/jobs", async (req, res): Promise<void> => {
 
   // Deduct wallet pre-flight (BEFORE AI runs)
   const deducted = await deductWallet(
+    userId,
     estimatedCost,
     job.id,
     `${type.charAt(0).toUpperCase() + type.slice(1)} — ${originalFilename}`,
@@ -215,7 +217,7 @@ router.post("/jobs", async (req, res): Promise<void> => {
 
   // Fire-and-forget
   if (filePath) {
-    void processJob(job.id, type, filePath, uploadId ?? null, sourceLanguage ?? "auto", estimatedCost, originalFilename);
+    void processJob(userId, job.id, type, filePath, uploadId ?? null, sourceLanguage ?? "auto", estimatedCost, originalFilename);
   } else {
     // Dev/demo fallback — no real file
     setTimeout(() => {
@@ -241,7 +243,7 @@ router.post("/jobs", async (req, res): Promise<void> => {
             .set({ status: "failed", errorMessage: "Simulation failed", completedAt: new Date() })
             .where(eq(jobsTable.id, job.id))
             .catch(() => void 0);
-          await refundWallet(estimatedCost, job.id, `Refund — ${type} simulation failed`);
+          await refundWallet(userId, estimatedCost, job.id, `Refund — ${type} simulation failed`);
         }
       })();
     }, 1500);

@@ -4,8 +4,9 @@ import { z } from "zod/v4";
 
 export const walletTable = pgTable("wallet", {
   id: serial("id").primaryKey(),
+  userId: integer("user_id"),  // nullable for migration; set on all new wallets
   balance: numeric("balance", { precision: 12, scale: 2 }).notNull().default("0"),
-  planType: text("plan_type").notNull().default("free"), // free | solo | partnership | enterprise
+  planType: text("plan_type").notNull().default("free"),
   totalSpent: numeric("total_spent", { precision: 12, scale: 2 }).notNull().default("0"),
   totalJobsRun: integer("total_jobs_run").notNull().default(0),
   totalMinutesProcessed: numeric("total_minutes_processed", { precision: 12, scale: 2 }).notNull().default("0"),
@@ -15,6 +16,7 @@ export const walletTable = pgTable("wallet", {
 
 export const transactionsTable = pgTable("transactions", {
   id: serial("id").primaryKey(),
+  userId: integer("user_id"),  // nullable for migration
   type: text("type").notNull(), // credit | debit | refund
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
   description: text("description").notNull(),

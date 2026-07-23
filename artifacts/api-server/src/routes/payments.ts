@@ -67,11 +67,12 @@ function getRazorpay() {
 
 // ─── Wallet helpers ───────────────────────────────────────────────────────────
 
-export async function getOrCreateWallet() {
-  const rows = await db.select().from(walletTable).limit(1);
+export async function getOrCreateWallet(userId: number) {
+  const rows = await db.select().from(walletTable)
+    .where(eq(walletTable.userId, userId)).limit(1);
   if (rows.length > 0) return rows[0];
   const [wallet] = await db.insert(walletTable).values({
-    balance: "0", planType: "free", totalSpent: "0", totalJobsRun: 0, totalMinutesProcessed: "0",
+    userId, balance: "0", planType: "free", totalSpent: "0", totalJobsRun: 0, totalMinutesProcessed: "0",
   }).returning();
   return wallet;
 }
@@ -79,6 +80,7 @@ export async function getOrCreateWallet() {
 /** Idempotent payment apply — returns "applied" | "duplicate" | "failed" */
 async function applyPaymentOnce(
   paymentId: string,
+  userId: number,
   paidInr: number,
   walletCredit: number,
   description: string,
@@ -92,12 +94,13 @@ async function applyPaymentOnce(
 
     if (inserted.length === 0) return "duplicate";
 
-    const wallet = await getOrCreateWallet();
+    const wallet = await getOrCreateWallet(userId);
     await db.update(walletTable)
       .set({ balance: String(Number(wallet.balance) + walletCredit) })
       .where(eq(walletTable.id, wallet.id));
 
     await db.insert(transactionsTable).values({
+      userId,
       type: "credit",
       amount: String(walletCredit),
       description,
@@ -132,6 +135,7 @@ router.post("/payments/buy-pack", async (req, res): Promise<void> => {
   const pack = CREDIT_PACKS[packId];
   if (!pack) { res.status(400).json({ error: "Unknown pack" }); return; }
 
+  const userId = req.auth!.userId;
   const appBaseUrl = process.env.APP_BASE_URL ?? "";
   const rz = getRazorpay();
 
@@ -139,7 +143,7 @@ router.post("/payments/buy-pack", async (req, res): Promise<void> => {
     amount:      pack.priceInr * 100,
     currency:    "INR",
     description: `DAK Transcription — ${pack.label} Pack`,
-    notes:       { packId, walletCredit: String(pack.walletCredit) },
+    notes:       { packId, walletCredit: String(pack.walletCredit), userId: String(userId) },
   };
   if (appBaseUrl) {
     linkPayload.callback_url    = `${appBaseUrl}/billing`;
@@ -159,6 +163,7 @@ router.post("/payments/topup", async (req, res): Promise<void> => {
     return;
   }
 
+  const userId = req.auth!.userId;
   const appBaseUrl = process.env.APP_BASE_URL ?? "";
   const rz = getRazorpay();
 
@@ -166,7 +171,7 @@ router.post("/payments/topup", async (req, res): Promise<void> => {
     amount:      amount * 100,
     currency:    "INR",
     description: `DAK Transcription — Wallet top-up ₹${amount}`,
-    notes:       { topup: "true" },
+    notes:       { topup: "true", userId: String(userId) },
   };
   if (appBaseUrl) {
     linkPayload.callback_url    = `${appBaseUrl}/billing`;
@@ -211,12 +216,18 @@ router.post("/payments/webhook", async (req, res): Promise<void> => {
     const packId      = notes?.packId;
     const pack        = packId ? CREDIT_PACKS[packId] : null;
     const walletCredit = pack ? pack.walletCredit : paidInr;
+    const userId      = notes?.userId ? Number(notes.userId) : null;
+
+    if (!userId) {
+      console.error("[payments] Webhook missing userId in notes — cannot credit wallet");
+      res.json({ status: "ok" }); return;
+    }
 
     const desc = pack
       ? `${pack.label} Pack — paid ₹${paidInr}${pack.bonus > 0 ? ` + ₹${pack.bonus} bonus` : ""} = ₹${walletCredit} added`
       : `Wallet top-up — ₹${paidInr} added`;
 
-    const status = await applyPaymentOnce(paymentId, paidInr, walletCredit, desc);
+    const status = await applyPaymentOnce(paymentId, userId, paidInr, walletCredit, desc);
     if (status === "failed") {
       res.status(500).json({ error: "Payment apply failed — Razorpay will retry" }); return;
     }
