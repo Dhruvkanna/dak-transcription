@@ -12,7 +12,7 @@ import {
 } from "@workspace/api-zod";
 import { uploadStore } from "../lib/uploadStore.js";
 import { runTranscription } from "../services/transcribe.js";
-import { getRatePerMin, hasActivePlan, getOrCreateWallet } from "./payments.js";
+import { getRatePerMin, getOrCreateWallet } from "./payments.js";
 
 const router: IRouter = Router();
 
@@ -161,17 +161,8 @@ router.post("/jobs", async (req, res): Promise<void> => {
   // ── Wallet pre-flight ──────────────────────────────────────────────────────
   const wallet = await getOrCreateWallet();
 
-  // Require an active plan
-  if (!hasActivePlan(wallet.planType)) {
-    res.status(402).json({
-      error: "An active subscription is required to run jobs. Please subscribe from the Billing page.",
-      code: "NO_ACTIVE_PLAN",
-    });
-    return;
-  }
-
   // Check balance
-  const ratePerMin = getRatePerMin(type, wallet.planType);
+  const ratePerMin = getRatePerMin(type);
   const estimatedCost = Math.round(Number(inputDurationMinutes) * ratePerMin * 100) / 100;
 
   if (Number(wallet.balance) < estimatedCost) {

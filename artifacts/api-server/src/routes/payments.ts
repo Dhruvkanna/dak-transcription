@@ -6,33 +6,52 @@ import { db, walletTable, transactionsTable, processedPaymentsTable } from "@wor
 
 const router: IRouter = Router();
 
-// ─── Plan definitions (prices subject to update) ──────────────────────────────
+// ─── Credit pack definitions ──────────────────────────────────────────────────
+// walletCredit = what lands in the user's wallet (includes bonus for larger packs)
 
-export const SUBSCRIPTION_PLANS: Record<string, {
-  label: string; priceInr: number; description: string;
+export const CREDIT_PACKS: Record<string, {
+  label: string;
+  priceInr: number;      // what the user pays
+  walletCredit: number;  // what lands in their wallet
+  bonus: number;         // bonus on top (walletCredit - priceInr)
+  description: string;
+  tag?: string;
 }> = {
-  solo:        { label: "Solo",        priceInr:  999, description: "For individual creators & freelancers" },
-  partnership: { label: "Partnership", priceInr: 2999, description: "For studios and growing teams" },
-  enterprise:  { label: "Enterprise",  priceInr: 7999, description: "Unlimited scale with enterprise rates" },
+  starter: {
+    label: "Starter",
+    priceInr: 999,
+    walletCredit: 999,
+    bonus: 0,
+    description: "Perfect for trying out all four tools",
+  },
+  growth: {
+    label: "Growth",
+    priceInr: 2999,
+    walletCredit: 3299,
+    bonus: 300,
+    description: "For regular creators and freelancers",
+    tag: "Most Popular",
+  },
+  pro: {
+    label: "Pro",
+    priceInr: 5999,
+    walletCredit: 6999,
+    bonus: 1000,
+    description: "Best value — studios and high-volume teams",
+    tag: "Best Value",
+  },
 };
 
-/** INR rate per minute for each operation and plan tier */
-export const WALLET_RATES: Record<string, { standard: number; enterprise: number }> = {
-  transcription: { standard: 5,  enterprise: 4  },
-  subtitling:    { standard: 8,  enterprise: 6  },
-  captioning:    { standard: 12, enterprise: 10 },
-  dubbing:       { standard: 50, enterprise: 40 },
+/** INR rate per minute for each operation */
+export const WALLET_RATES: Record<string, number> = {
+  transcription: 5,
+  subtitling:    8,
+  captioning:    12,
+  dubbing:       50,
 };
 
-export const ACTIVE_PLANS = new Set(["solo", "partnership", "enterprise"]);
-
-export function getRatePerMin(operation: string, planType: string): number {
-  const rates = WALLET_RATES[operation] ?? { standard: 5, enterprise: 5 };
-  return planType === "enterprise" ? rates.enterprise : rates.standard;
-}
-
-export function hasActivePlan(planType: string): boolean {
-  return ACTIVE_PLANS.has((planType ?? "free").toLowerCase());
+export function getRatePerMin(operation: string): number {
+  return WALLET_RATES[operation] ?? 5;
 }
 
 const TOPUP_MIN = 200;
@@ -57,38 +76,31 @@ export async function getOrCreateWallet() {
   return wallet;
 }
 
-/** Idempotent: returns "applied" | "duplicate" | "failed" */
+/** Idempotent payment apply — returns "applied" | "duplicate" | "failed" */
 async function applyPaymentOnce(
   paymentId: string,
-  amountInr: number,
-  plan: string,
+  paidInr: number,
+  walletCredit: number,
+  description: string,
 ): Promise<"applied" | "duplicate" | "failed"> {
   try {
-    // Insert into dedup table — conflict = already processed
     const inserted = await db.insert(processedPaymentsTable).values({
       paymentId,
-      amountInr: String(amountInr),
-      plan,
+      amountInr: String(paidInr),
+      plan: "",
     }).onConflictDoNothing().returning();
 
     if (inserted.length === 0) return "duplicate";
 
     const wallet = await getOrCreateWallet();
-    const updates: Partial<typeof walletTable.$inferInsert> = {
-      balance: String(Number(wallet.balance) + amountInr),
-    };
-    if (plan && ACTIVE_PLANS.has(plan.toLowerCase())) {
-      updates.planType = plan.toLowerCase();
-    }
-
-    await db.update(walletTable).set(updates).where(eq(walletTable.id, wallet.id));
+    await db.update(walletTable)
+      .set({ balance: String(Number(wallet.balance) + walletCredit) })
+      .where(eq(walletTable.id, wallet.id));
 
     await db.insert(transactionsTable).values({
       type: "credit",
-      amount: String(amountInr),
-      description: plan
-        ? `${SUBSCRIPTION_PLANS[plan.toLowerCase()]?.label ?? plan} Plan — ₹${amountInr} (Payment: ${paymentId})`
-        : `Wallet top-up — ₹${amountInr} (Payment: ${paymentId})`,
+      amount: String(walletCredit),
+      description,
       jobId: null,
     });
 
@@ -99,202 +111,114 @@ async function applyPaymentOnce(
   }
 }
 
-// ─── Lazy Razorpay plan ID resolution ────────────────────────────────────────
-
-const planIdCache: Record<string, string> = {};
-
-async function getOrCreateRazorpayPlan(tier: string): Promise<string> {
-  // Prefer pre-created plan IDs from env vars (Render / Replit)
-  const envKey = `RAZORPAY_PLAN_${tier.toUpperCase()}_ID`;
-  const fromEnv = process.env[envKey];
-  if (fromEnv) return fromEnv;
-
-  if (planIdCache[tier]) return planIdCache[tier];
-
-  const cfg = SUBSCRIPTION_PLANS[tier];
-  if (!cfg) throw new Error(`Unknown plan tier: ${tier}`);
-
-  const rz = getRazorpay();
-  const list = await rz.plans.all({ count: 100 }) as any;
-  const existing = (list.items ?? []).find(
-    (p: any) => p.item?.name === `DAK ${cfg.label} Plan` && p.item?.amount === cfg.priceInr * 100,
-  );
-  if (existing) { planIdCache[tier] = existing.id; return existing.id; }
-
-  const plan = await rz.plans.create({
-    period: "monthly",
-    interval: 1,
-    item: {
-      name: `DAK ${cfg.label} Plan`,
-      amount: cfg.priceInr * 100,
-      currency: "INR",
-      description: cfg.description,
-    },
-  }) as any;
-
-  planIdCache[tier] = plan.id;
-  return plan.id;
-}
-
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
-/** Publishable key ID — safe to expose to the frontend */
+/** Publishable key ID — safe to expose */
 router.get("/payments/config", (_req, res): void => {
   res.json({ keyId: process.env.RAZORPAY_KEY_ID ?? "" });
 });
 
-/** Plan & rate metadata for the Billing UI */
-router.get("/payments/plans", (_req, res): void => {
-  res.json({ subscriptionPlans: SUBSCRIPTION_PLANS, walletRates: WALLET_RATES, topupMin: TOPUP_MIN });
+/** Pack metadata for Billing UI */
+router.get("/payments/packs", (_req, res): void => {
+  res.json({ packs: CREDIT_PACKS, walletRates: WALLET_RATES, topupMin: TOPUP_MIN });
 });
 
-// ── Subscription: create → redirect to Razorpay short_url ────────────────────
+// ── Buy a credit pack ─────────────────────────────────────────────────────────
+// Creates a Razorpay payment link and returns the short_url for redirect.
+// packId is stored in notes so the webhook knows to credit the right amount.
 
-router.post("/payments/create-subscription", async (req, res): Promise<void> => {
-  const { tier } = req.body as { tier: string };
-  if (!SUBSCRIPTION_PLANS[tier]) { res.status(400).json({ error: "Unknown plan tier" }); return; }
+router.post("/payments/buy-pack", async (req, res): Promise<void> => {
+  const { packId } = req.body as { packId: string };
+  const pack = CREDIT_PACKS[packId];
+  if (!pack) { res.status(400).json({ error: "Unknown pack" }); return; }
 
-  const planId = await getOrCreateRazorpayPlan(tier);
+  const appBaseUrl = process.env.APP_BASE_URL ?? "";
   const rz = getRazorpay();
-  const totalCount = parseInt(process.env.RAZORPAY_SUB_TOTAL_COUNT ?? "120", 10);
 
-  const subscription = await rz.subscriptions.create({
-    plan_id:     planId,
-    total_count: totalCount,
-    quantity:    1,
-    notes:       { tier, plan: tier },
-  }) as any;
+  const linkPayload: any = {
+    amount:      pack.priceInr * 100,
+    currency:    "INR",
+    description: `DAK Transcription — ${pack.label} Pack`,
+    notes:       { packId, walletCredit: String(pack.walletCredit) },
+  };
+  if (appBaseUrl) {
+    linkPayload.callback_url    = `${appBaseUrl}/billing`;
+    linkPayload.callback_method = "get";
+  }
 
-  // Return the short_url for the frontend to redirect to
-  res.json({
-    subscriptionId: subscription.id,
-    shortUrl: subscription.short_url ?? null,
-    tier,
-  });
+  const link = await rz.paymentLink.create(linkPayload) as any;
+  res.json({ shortUrl: link.short_url, pack });
 });
 
-// ── Wallet top-up: create payment link → redirect to short_url ───────────────
+// ── Custom top-up ─────────────────────────────────────────────────────────────
 
-router.post("/payments/create-payment-link", async (req, res): Promise<void> => {
-  const { amount } = req.body as { amount: number };
-  const amountRupees = Math.floor(Number(amount));
-
-  if (!amountRupees || amountRupees < TOPUP_MIN) {
+router.post("/payments/topup", async (req, res): Promise<void> => {
+  const amount = Math.floor(Number(req.body?.amount ?? 0));
+  if (amount < TOPUP_MIN) {
     res.status(400).json({ error: `Minimum top-up is ₹${TOPUP_MIN}` });
     return;
   }
 
   const appBaseUrl = process.env.APP_BASE_URL ?? "";
-  const callbackUrl = appBaseUrl ? `${appBaseUrl}/billing` : undefined;
-
   const rz = getRazorpay();
+
   const linkPayload: any = {
-    amount:      amountRupees * 100,
+    amount:      amount * 100,
     currency:    "INR",
-    description: `DAK Transcription wallet top-up ₹${amountRupees}`,
+    description: `DAK Transcription — Wallet top-up ₹${amount}`,
     notes:       { topup: "true" },
   };
-  if (callbackUrl) {
-    linkPayload.callback_url    = callbackUrl;
+  if (appBaseUrl) {
+    linkPayload.callback_url    = `${appBaseUrl}/billing`;
     linkPayload.callback_method = "get";
   }
 
   const link = await rz.paymentLink.create(linkPayload) as any;
-
-  res.json({ shortUrl: link.short_url, amount: amountRupees });
+  res.json({ shortUrl: link.short_url, amount });
 });
 
-// ── Cancel active subscription ────────────────────────────────────────────────
-
-router.delete("/payments/subscription", async (_req, res): Promise<void> => {
-  const wallet = await getOrCreateWallet();
-  if (!wallet.razorpaySubscriptionId) {
-    res.status(400).json({ error: "No active subscription found" });
-    return;
-  }
-
-  const rz = getRazorpay();
-  await rz.subscriptions.cancel(wallet.razorpaySubscriptionId, false);
-
-  await db.update(walletTable)
-    .set({ planType: "free", razorpaySubscriptionId: null })
-    .where(eq(walletTable.id, wallet.id));
-
-  res.json({ success: true });
-});
-
-// ── Webhook: subscription.charged + payment_link.paid ────────────────────────
+// ── Webhook: payment_link.paid ────────────────────────────────────────────────
 
 router.post("/payments/webhook", async (req, res): Promise<void> => {
   const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
   if (webhookSecret) {
-    const signature = req.headers["x-razorpay-signature"] as string;
+    const sig      = req.headers["x-razorpay-signature"] as string;
     const expected = crypto
       .createHmac("sha256", webhookSecret)
       .update(JSON.stringify(req.body))
       .digest("hex");
-    if (expected !== signature) {
-      res.status(400).json({ error: "Invalid webhook signature" });
-      return;
+    if (expected !== sig) {
+      res.status(400).json({ error: "Invalid webhook signature" }); return;
     }
   }
 
   const event   = req.body?.event as string;
   const payload = req.body?.payload ?? {};
 
-  // Extract payment entity and notes
-  const payment = payload?.payment?.entity ?? {};
-  const plink   = payload?.payment_link?.entity ?? {};
-
-  let notes: Record<string, string> = {};
-  for (const src of [payment, plink]) {
-    const n = src?.notes;
-    if (n && typeof n === "object") { notes = n as Record<string, string>; break; }
-  }
-
-  if (event === "subscription.charged") {
-    const amountInr = (payment?.amount ?? 0) / 100;
-    const paymentId = payment?.id ?? "";
-    const tier      = (payload?.subscription?.entity?.notes?.tier ?? notes?.tier ?? notes?.plan ?? "") as string;
-
-    if (!amountInr || !paymentId) {
-      res.status(500).json({ error: "Missing amount or payment ID" });
-      return;
-    }
-
-    // Track subscription ID on wallet
-    const subId = payload?.subscription?.entity?.id as string | undefined;
-    if (subId) {
-      const wallet = await getOrCreateWallet();
-      await db.update(walletTable)
-        .set({ razorpaySubscriptionId: subId })
-        .where(eq(walletTable.id, wallet.id));
-    }
-
-    const status = await applyPaymentOnce(paymentId, amountInr, tier);
-    if (status === "failed") { res.status(500).json({ error: "Payment apply failed — Razorpay will retry" }); return; }
-  }
-
   if (event === "payment_link.paid") {
-    const amountInr = (payment?.amount ?? 0) / 100;
-    const paymentId = payment?.id ?? "";
+    const payment   = payload?.payment?.entity ?? {};
+    const plinkData = payload?.payment_link?.entity ?? {};
+    const notes     = (plinkData?.notes ?? payment?.notes ?? {}) as Record<string, string>;
 
-    if (!amountInr || !paymentId) {
-      res.status(500).json({ error: "Missing amount or payment ID" });
-      return;
+    const paymentId = payment?.id as string;
+    const paidInr   = (payment?.amount ?? 0) / 100;
+
+    if (!paymentId || !paidInr) {
+      res.status(500).json({ error: "Missing payment ID or amount" }); return;
     }
 
-    const status = await applyPaymentOnce(paymentId, amountInr, "");
-    if (status === "failed") { res.status(500).json({ error: "Payment apply failed — Razorpay will retry" }); return; }
-  }
+    // If a packId is in notes, credit the wallet amount for that pack (includes bonus)
+    const packId      = notes?.packId;
+    const pack        = packId ? CREDIT_PACKS[packId] : null;
+    const walletCredit = pack ? pack.walletCredit : paidInr;
 
-  if (event === "subscription.cancelled" || event === "subscription.completed") {
-    const subId = payload?.subscription?.entity?.id as string | undefined;
-    const wallet = await getOrCreateWallet();
-    if (subId && wallet.razorpaySubscriptionId === subId) {
-      await db.update(walletTable)
-        .set({ planType: "free", razorpaySubscriptionId: null })
-        .where(eq(walletTable.id, wallet.id));
+    const desc = pack
+      ? `${pack.label} Pack — paid ₹${paidInr}${pack.bonus > 0 ? ` + ₹${pack.bonus} bonus` : ""} = ₹${walletCredit} added`
+      : `Wallet top-up — ₹${paidInr} added`;
+
+    const status = await applyPaymentOnce(paymentId, paidInr, walletCredit, desc);
+    if (status === "failed") {
+      res.status(500).json({ error: "Payment apply failed — Razorpay will retry" }); return;
     }
   }
 
