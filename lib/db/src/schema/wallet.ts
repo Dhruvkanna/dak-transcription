@@ -5,10 +5,11 @@ import { z } from "zod/v4";
 export const walletTable = pgTable("wallet", {
   id: serial("id").primaryKey(),
   balance: numeric("balance", { precision: 12, scale: 2 }).notNull().default("0"),
-  planType: text("plan_type").notNull().default("free"), // free | pro | firm
+  planType: text("plan_type").notNull().default("free"), // free | starter | pro | business
   totalSpent: numeric("total_spent", { precision: 12, scale: 2 }).notNull().default("0"),
   totalJobsRun: integer("total_jobs_run").notNull().default(0),
   totalMinutesProcessed: numeric("total_minutes_processed", { precision: 12, scale: 2 }).notNull().default("0"),
+  razorpaySubscriptionId: text("razorpay_subscription_id"),   // active Razorpay subscription ID
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
 

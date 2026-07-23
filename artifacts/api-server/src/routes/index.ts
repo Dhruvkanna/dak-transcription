@@ -6,6 +6,7 @@ import dashboardRouter from "./dashboard";
 import teamRouter from "./team";
 import supportRouter from "./support";
 import uploadsRouter from "./uploads";
+import paymentsRouter from "./payments";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(walletRouter);
 router.use(dashboardRouter);
 router.use(teamRouter);
 router.use(supportRouter);
+router.use(paymentsRouter);
 
 export default router;
