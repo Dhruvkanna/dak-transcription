@@ -158,6 +158,8 @@ export function ToolLayout({ title, description, type, icon: Icon, renderResult 
 
   // Job state
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const createJob = useCreateJob();
   const { data: job } = useGetJob(activeJobId!, {
     query: {
@@ -220,24 +222,65 @@ export function ToolLayout({ title, description, type, icon: Icon, renderResult 
     if (inputRef.current) inputRef.current.value = '';
   };
 
+  // ── Duration detection (client-side via HTML5 media element) ──────────────
+
+  function getFileDuration(f: File): Promise<number> {
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(f);
+      const el = document.createElement(f.type.startsWith('video') ? 'video' : 'audio');
+      el.preload = 'metadata';
+      el.src = url;
+      el.onloadedmetadata = () => { URL.revokeObjectURL(url); resolve(el.duration / 60); };
+      el.onerror = () => { URL.revokeObjectURL(url); resolve(0); };
+    });
+  }
+
   // ── Submit ─────────────────────────────────────────────────────────────────
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!file) return;
-    createJob.mutate({
-      data: {
-        type,
-        jobName: jobName.trim(),
-        inputFilename: file.name,
-        inputDurationMinutes: 0,
-        domain: 'general',
-        sourceLanguage,
-        targetLanguage: type === 'dubbing' ? targetLanguage : undefined,
-        translateTo: type !== 'dubbing' && targetLanguage ? targetLanguage : undefined,
-      },
-    }, {
-      onSuccess: (newJob) => setActiveJobId(newJob.id),
-    });
+    setUploadError(null);
+    setIsUploading(true);
+
+    try {
+      // 1. Get duration client-side
+      const durationMinutes = await getFileDuration(file);
+
+      // 2. Upload file to server
+      const formData = new FormData();
+      formData.append('file', file);
+      const uploadRes = await fetch(`${import.meta.env.BASE_URL}api/uploads`, {
+        method: 'POST',
+        body: formData,
+      });
+      if (!uploadRes.ok) {
+        const err = await uploadRes.json().catch(() => ({}));
+        throw new Error((err as any).error ?? 'Upload failed');
+      }
+      const { uploadId } = await uploadRes.json() as { uploadId: string };
+
+      setIsUploading(false);
+
+      // 3. Create job — include uploadId in body; server reads req.body.uploadId directly
+      createJob.mutate({
+        data: {
+          type,
+          jobName: jobName.trim(),
+          inputFilename: file.name,
+          inputDurationMinutes: durationMinutes,
+          domain: 'general',
+          sourceLanguage,
+          targetLanguage: type === 'dubbing' ? targetLanguage : undefined,
+          translateTo: type !== 'dubbing' && targetLanguage ? targetLanguage : undefined,
+          uploadId,
+        } as any,
+      }, {
+        onSuccess: (newJob) => setActiveJobId(newJob.id),
+      });
+    } catch (err: any) {
+      setIsUploading(false);
+      setUploadError(err?.message ?? 'Upload failed. Please try again.');
+    }
   };
 
   const isVideoFile = file?.name.match(/\.(mp4|mov|mpeg|mpg)$/i);
@@ -417,14 +460,21 @@ export function ToolLayout({ title, description, type, icon: Icon, renderResult 
                     Continue <ChevronRight size={15} />
                   </Button>
                 ) : (
-                  <Button
-                    onClick={handleSubmit}
-                    disabled={!file || !!fileError || createJob.isPending || activeJobId !== null}
-                    isLoading={createJob.isPending}
-                    className="w-32"
-                  >
-                    Start Job
-                  </Button>
+                  <div className="flex flex-col items-end gap-1">
+                    {uploadError && (
+                      <p className="text-xs text-danger flex items-center gap-1">
+                        <AlertCircle size={11} /> {uploadError}
+                      </p>
+                    )}
+                    <Button
+                      onClick={handleSubmit}
+                      disabled={!file || !!fileError || isUploading || createJob.isPending || activeJobId !== null}
+                      isLoading={isUploading || createJob.isPending}
+                      className="w-36"
+                    >
+                      {isUploading ? 'Uploading…' : 'Start Job'}
+                    </Button>
+                  </div>
                 )}
               </div>
             </CardContent>

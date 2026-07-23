@@ -6,8 +6,9 @@ export const jobsTable = pgTable("jobs", {
   id: serial("id").primaryKey(),
   type: text("type").notNull(), // transcription | subtitling | captioning | dubbing
   status: text("status").notNull().default("pending"), // pending | processing | completed | failed
-  jobName: text("job_name"),                           // user-supplied friendly project name
+  jobName: text("job_name"),
   inputFilename: text("input_filename").notNull(),
+  inputFilePath: text("input_file_path"),              // absolute path to uploaded file on disk
   inputDurationMinutes: numeric("input_duration_minutes", { precision: 10, scale: 2 }).notNull(),
   domain: text("domain").notNull().default("general"),
   sourceLanguage: text("source_language").default("auto"),
@@ -15,6 +16,7 @@ export const jobsTable = pgTable("jobs", {
   translateTo: text("translate_to"),
   outputFormat: text("output_format"),
   outputUrl: text("output_url"),
+  outputData: text("output_data"),                     // JSON string of AI segments / blocks
   creditsUsed: numeric("credits_used", { precision: 10, scale: 2 }),
   progressPercent: integer("progress_percent"),
   errorMessage: text("error_message"),

@@ -11,6 +11,13 @@ export interface TranscriptBlock {
   text: string;
 }
 
+// ─── Props ─────────────────────────────────────────────────────────────────────
+
+export interface TranscriptEditorProps {
+  job: any;
+  initialBlocks?: TranscriptBlock[];
+}
+
 // ─── Utilities ─────────────────────────────────────────────────────────────────
 
 const SPEAKERS = ['Speaker 1', 'Speaker 2', 'Speaker 3', 'Speaker 4', 'Narrator', 'Interviewer', 'Interviewee'];
@@ -81,8 +88,10 @@ function speakerStyle(speaker: string): string {
 
 // ─── Main component ─────────────────────────────────────────────────────────────
 
-export function TranscriptEditor({ job }: { job: any }) {
-  const [blocks, setBlocks] = useState<TranscriptBlock[]>(() => generateMockBlocks(job.id));
+export function TranscriptEditor({ job, initialBlocks }: TranscriptEditorProps) {
+  const [blocks, setBlocks] = useState<TranscriptBlock[]>(
+    () => initialBlocks && initialBlocks.length > 0 ? initialBlocks : generateMockBlocks(job.id)
+  );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editingTs, setEditingTs] = useState<string | null>(null);
   const [editingSpeaker, setEditingSpeaker] = useState<string | null>(null);

@@ -40,6 +40,13 @@ function maxLineLen(text: string): number {
   return Math.max(...text.split('\n').map(l => l.length));
 }
 
+// ─── Props ─────────────────────────────────────────────────────────────────────
+
+export interface SubtitleEditorProps {
+  job: any;
+  initialSegments?: SubtitleSegment[];
+}
+
 // ─── Seeded mock data ──────────────────────────────────────────────────────────
 
 const MOCK_LINES = [
@@ -127,9 +134,11 @@ function TimecodeInput({
 
 // ─── Main component ────────────────────────────────────────────────────────────
 
-export function SubtitleEditor({ job }: { job: any }) {
+export function SubtitleEditor({ job, initialSegments }: SubtitleEditorProps) {
   const uid = useId();
-  const [segments, setSegments] = useState<SubtitleSegment[]>(() => generateMockSegments(job.id));
+  const [segments, setSegments] = useState<SubtitleSegment[]>(
+    () => initialSegments && initialSegments.length > 0 ? initialSegments : generateMockSegments(job.id)
+  );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editingTime, setEditingTime] = useState<{ id: string; field: 'start' | 'end' } | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
