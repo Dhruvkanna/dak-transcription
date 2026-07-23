@@ -9,7 +9,9 @@ export const jobsTable = pgTable("jobs", {
   inputFilename: text("input_filename").notNull(),
   inputDurationMinutes: numeric("input_duration_minutes", { precision: 10, scale: 2 }).notNull(),
   domain: text("domain").notNull().default("general"), // general | legal | medical | business
-  targetLanguage: text("target_language"),
+  sourceLanguage: text("source_language").default("auto"), // "auto" or a language name
+  targetLanguage: text("target_language"),               // dubbing target language
+  translateTo: text("translate_to"),                     // translation of transcript/subtitles
   outputFormat: text("output_format"),
   outputUrl: text("output_url"),
   creditsUsed: numeric("credits_used", { precision: 10, scale: 2 }),

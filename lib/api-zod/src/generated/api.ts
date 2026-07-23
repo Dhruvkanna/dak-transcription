@@ -36,7 +36,9 @@ export const ListJobsResponseItem = zod.object({
   "inputFilename": zod.string(),
   "inputDurationMinutes": zod.number(),
   "domain": zod.enum(['general', 'legal', 'medical', 'business']),
+  "sourceLanguage": zod.string().nullish(),
   "targetLanguage": zod.string().nullish(),
+  "translateTo": zod.string().nullish(),
   "outputFormat": zod.string().nullish(),
   "outputUrl": zod.string().nullish(),
   "creditsUsed": zod.number().nullish(),
@@ -52,13 +54,16 @@ export const ListJobsResponse = zod.array(ListJobsResponseItem)
  * @summary Submit a new job
  */
 export const createJobBodyDomainDefault = `general`;
+export const createJobBodySourceLanguageDefault = `auto`;
 
 export const CreateJobBody = zod.object({
   "type": zod.enum(['transcription', 'subtitling', 'captioning', 'dubbing']),
   "inputFilename": zod.string(),
   "inputDurationMinutes": zod.number(),
   "domain": zod.enum(['general', 'legal', 'medical', 'business']).default(createJobBodyDomainDefault),
+  "sourceLanguage": zod.string().default(createJobBodySourceLanguageDefault),
   "targetLanguage": zod.string().optional(),
+  "translateTo": zod.string().optional(),
   "outputFormat": zod.string().optional()
 })
 
@@ -69,7 +74,9 @@ export const CreateJobResponse = zod.object({
   "inputFilename": zod.string(),
   "inputDurationMinutes": zod.number(),
   "domain": zod.enum(['general', 'legal', 'medical', 'business']),
+  "sourceLanguage": zod.string().nullish(),
   "targetLanguage": zod.string().nullish(),
+  "translateTo": zod.string().nullish(),
   "outputFormat": zod.string().nullish(),
   "outputUrl": zod.string().nullish(),
   "creditsUsed": zod.number().nullish(),
@@ -94,7 +101,9 @@ export const GetJobResponse = zod.object({
   "inputFilename": zod.string(),
   "inputDurationMinutes": zod.number(),
   "domain": zod.enum(['general', 'legal', 'medical', 'business']),
+  "sourceLanguage": zod.string().nullish(),
   "targetLanguage": zod.string().nullish(),
+  "translateTo": zod.string().nullish(),
   "outputFormat": zod.string().nullish(),
   "outputUrl": zod.string().nullish(),
   "creditsUsed": zod.number().nullish(),
@@ -137,7 +146,9 @@ export const UpdateJobStatusResponse = zod.object({
   "inputFilename": zod.string(),
   "inputDurationMinutes": zod.number(),
   "domain": zod.enum(['general', 'legal', 'medical', 'business']),
+  "sourceLanguage": zod.string().nullish(),
   "targetLanguage": zod.string().nullish(),
+  "translateTo": zod.string().nullish(),
   "outputFormat": zod.string().nullish(),
   "outputUrl": zod.string().nullish(),
   "creditsUsed": zod.number().nullish(),
@@ -232,7 +243,9 @@ export const GetRecentActivityResponseItem = zod.object({
   "inputFilename": zod.string(),
   "inputDurationMinutes": zod.number(),
   "domain": zod.enum(['general', 'legal', 'medical', 'business']),
+  "sourceLanguage": zod.string().nullish(),
   "targetLanguage": zod.string().nullish(),
+  "translateTo": zod.string().nullish(),
   "outputFormat": zod.string().nullish(),
   "outputUrl": zod.string().nullish(),
   "creditsUsed": zod.number().nullish(),

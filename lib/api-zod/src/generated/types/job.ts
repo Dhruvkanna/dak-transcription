@@ -17,7 +17,11 @@ export interface Job {
   inputDurationMinutes: number;
   domain: JobDomain;
   /** @nullable */
+  sourceLanguage?: string | null;
+  /** @nullable */
   targetLanguage?: string | null;
+  /** @nullable */
+  translateTo?: string | null;
   /** @nullable */
   outputFormat?: string | null;
   /** @nullable */

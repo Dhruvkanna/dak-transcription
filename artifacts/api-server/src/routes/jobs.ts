@@ -28,7 +28,9 @@ function formatJob(job: typeof jobsTable.$inferSelect) {
     inputFilename: job.inputFilename,
     inputDurationMinutes: Number(job.inputDurationMinutes),
     domain: job.domain,
+    sourceLanguage: job.sourceLanguage ?? null,
     targetLanguage: job.targetLanguage ?? null,
+    translateTo: job.translateTo ?? null,
     outputFormat: job.outputFormat ?? null,
     outputUrl: job.outputUrl ?? null,
     creditsUsed: job.creditsUsed != null ? Number(job.creditsUsed) : null,
@@ -73,14 +75,16 @@ router.post("/jobs", async (req, res): Promise<void> => {
     return;
   }
 
-  const { type, inputFilename, inputDurationMinutes, domain, targetLanguage, outputFormat } = parsed.data;
+  const { type, inputFilename, inputDurationMinutes, domain, sourceLanguage, targetLanguage, translateTo, outputFormat } = parsed.data;
 
   const [job] = await db.insert(jobsTable).values({
     type,
     inputFilename,
     inputDurationMinutes: String(inputDurationMinutes),
     domain: domain ?? "general",
+    sourceLanguage: sourceLanguage ?? "auto",
     targetLanguage: targetLanguage ?? null,
+    translateTo: translateTo ?? null,
     outputFormat: outputFormat ?? null,
     status: "pending",
     progressPercent: 0,

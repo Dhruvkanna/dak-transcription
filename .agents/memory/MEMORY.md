@@ -1,0 +1,1 @@
+- [Supabase preference](supabase-db.md) — user will use Supabase in production, not Replit's built-in PostgreSQL.

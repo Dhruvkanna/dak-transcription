@@ -47,7 +47,11 @@ export interface Job {
   inputDurationMinutes: number;
   domain: JobDomain;
   /** @nullable */
+  sourceLanguage?: string | null;
+  /** @nullable */
   targetLanguage?: string | null;
+  /** @nullable */
+  translateTo?: string | null;
   /** @nullable */
   outputFormat?: string | null;
   /** @nullable */
@@ -88,7 +92,9 @@ export interface JobInput {
   inputFilename: string;
   inputDurationMinutes: number;
   domain: JobInputDomain;
+  sourceLanguage?: string;
   targetLanguage?: string;
+  translateTo?: string;
   outputFormat?: string;
 }
 

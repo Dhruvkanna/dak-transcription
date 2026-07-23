@@ -318,7 +318,11 @@ components:
         domain:
           type: string
           enum: [general, legal, medical, business]
+        sourceLanguage:
+          type: ["string", "null"]
         targetLanguage:
+          type: ["string", "null"]
+        translateTo:
           type: ["string", "null"]
         outputFormat:
           type: ["string", "null"]
@@ -352,7 +356,12 @@ components:
           type: string
           enum: [general, legal, medical, business]
           default: general
+        sourceLanguage:
+          type: string
+          default: auto
         targetLanguage:
+          type: string
+        translateTo:
           type: string
         outputFormat:
           type: string

@@ -13,6 +13,8 @@ export interface JobInput {
   inputFilename: string;
   inputDurationMinutes: number;
   domain: JobInputDomain;
+  sourceLanguage?: string;
   targetLanguage?: string;
+  translateTo?: string;
   outputFormat?: string;
 }
