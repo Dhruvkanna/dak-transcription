@@ -36,7 +36,7 @@ The text is perfectly synced with the original video's audio track.
 
 4
 00:00:12,800 --> 00:00:17,000
-Domain selected: ${job.domain.toUpperCase()}
+The text is aligned to the nearest 100ms boundary.
 
 5
 00:00:17,000 --> 00:00:22,000

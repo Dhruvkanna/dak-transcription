@@ -67,7 +67,7 @@ export default function Dubbing() {
 
             <div className="text-center bg-info-bg/50 p-4 rounded-lg border border-info/10 text-sm text-foreground-2">
               <p><strong>Voice Match:</strong> High fidelity preserved</p>
-              <p><strong>Translation:</strong> Contextually adapted for {job.domain}</p>
+              <p><strong>Translation:</strong> Contextually adapted for natural speech</p>
             </div>
             
           </div>
