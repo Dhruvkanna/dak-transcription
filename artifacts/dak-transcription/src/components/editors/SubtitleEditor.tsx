@@ -99,6 +99,29 @@ function toTxt(segs: SubtitleSegment[]): string {
   return segs.map(s => s.text).join('\n');
 }
 
+function toWord(segs: SubtitleSegment[], title: string): string {
+  const rows = segs.map((s, i) =>
+    `<tr><td style="padding:4px 8px;border:1px solid #ccc;font-family:monospace;font-size:12px;white-space:nowrap">${i + 1}</td>` +
+    `<td style="padding:4px 8px;border:1px solid #ccc;font-family:monospace;font-size:12px;white-space:nowrap">${msToSrt(s.start)}</td>` +
+    `<td style="padding:4px 8px;border:1px solid #ccc;font-family:monospace;font-size:12px;white-space:nowrap">${msToSrt(s.end)}</td>` +
+    `<td style="padding:4px 8px;border:1px solid #ccc;font-size:13px">${s.text.replace(/\n/g, '<br/>')}</td></tr>`
+  ).join('');
+  return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8"><title>${title}</title></head>
+<body style="font-family:Calibri,sans-serif">
+<h2 style="margin-bottom:12px">${title}</h2>
+<table style="border-collapse:collapse;width:100%">
+<thead><tr style="background:#f0f0f0">
+<th style="padding:4px 8px;border:1px solid #ccc;text-align:left">#</th>
+<th style="padding:4px 8px;border:1px solid #ccc;text-align:left">In</th>
+<th style="padding:4px 8px;border:1px solid #ccc;text-align:left">Out</th>
+<th style="padding:4px 8px;border:1px solid #ccc;text-align:left">Text</th>
+</tr></thead>
+<tbody>${rows}</tbody>
+</table>
+</body></html>`;
+}
+
 // ─── Timecode input ────────────────────────────────────────────────────────────
 
 function TimecodeInput({
@@ -338,6 +361,7 @@ export function SubtitleEditor({ job, initialSegments }: SubtitleEditorProps) {
                 { label: 'SRT', fn: () => downloadText(toSrt(segments), `${job.jobName ?? 'subtitles'}.srt`) },
                 { label: 'VTT', fn: () => downloadText(toVtt(segments), `${job.jobName ?? 'subtitles'}.vtt`) },
                 { label: 'TXT', fn: () => downloadText(toTxt(segments), `${job.jobName ?? 'subtitles'}.txt`) },
+                { label: 'Word (.doc)', fn: () => downloadText(toWord(segments, job.jobName ?? 'subtitles'), `${job.jobName ?? 'subtitles'}.doc`) },
               ].map(({ label, fn }) => (
                 <button
                   key={label}

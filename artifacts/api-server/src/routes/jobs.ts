@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, desc, and } from "drizzle-orm";
+import fs from "fs";
 import { db, jobsTable, walletTable, transactionsTable } from "@workspace/db";
 import {
   ListJobsQueryParams,
@@ -44,14 +45,49 @@ function formatJob(job: typeof jobsTable.$inferSelect) {
   };
 }
 
+// ─── Helpers ───────────────────────────────────────────────────────────────
+
+async function getOrCreateWallet() {
+  const wallets = await db.select().from(walletTable).limit(1);
+  if (wallets.length > 0) return wallets[0];
+  const [wallet] = await db.insert(walletTable).values({
+    balance: "500",
+    planType: "pro",
+    totalSpent: "0",
+    totalJobsRun: 0,
+    totalMinutesProcessed: "0",
+  }).returning();
+  return wallet;
+}
+
+async function deductCredits(creditsUsed: number, jobId: number, description: string) {
+  const wallet = await getOrCreateWallet();
+  await db.update(walletTable)
+    .set({
+      balance: String(Math.max(0, Number(wallet.balance) - creditsUsed)),
+      totalSpent: String(Number(wallet.totalSpent) + creditsUsed),
+      totalJobsRun: wallet.totalJobsRun + 1,
+      totalMinutesProcessed: String(Number(wallet.totalMinutesProcessed) + creditsUsed / (RATES["transcription"] ?? 5)),
+    })
+    .where(eq(walletTable.id, wallet.id));
+  await db.insert(transactionsTable).values({
+    type: "debit",
+    amount: String(creditsUsed),
+    description,
+    jobId,
+  });
+}
+
 // ─── Real async job processor ──────────────────────────────────────────────
 
 async function processJob(
   jobId: number,
   type: string,
   filePath: string,
+  uploadId: string | null,
   sourceLanguage: string,
-  inputDurationMinutes: number
+  inputDurationMinutes: number,
+  originalFilename: string,
 ): Promise<void> {
   try {
     await db.update(jobsTable)
@@ -75,28 +111,11 @@ async function processJob(
       })
       .where(eq(jobsTable.id, jobId));
 
-    // Deduct credits from wallet
-    const wallets = await db.select().from(walletTable).limit(1);
-    if (wallets.length > 0) {
-      const wallet = wallets[0];
-      await db.update(walletTable)
-        .set({
-          balance: String(Math.max(0, Number(wallet.balance) - creditsUsed)),
-          totalSpent: String(Number(wallet.totalSpent) + creditsUsed),
-          totalJobsRun: wallet.totalJobsRun + 1,
-          totalMinutesProcessed: String(Number(wallet.totalMinutesProcessed) + actualDuration),
-        })
-        .where(eq(walletTable.id, wallet.id));
-    }
-
-    await db.insert(transactionsTable).values({
-      type: "debit",
-      amount: String(creditsUsed),
-      description: `${type.charAt(0).toUpperCase() + type.slice(1)} — ${
-        uploadStore.get(String(jobId))?.originalName ?? "file"
-      }`,
+    await deductCredits(
+      creditsUsed,
       jobId,
-    });
+      `${type.charAt(0).toUpperCase() + type.slice(1)} — ${originalFilename}`,
+    );
   } catch (err: any) {
     console.error(`[jobs] processJob ${jobId} failed:`, err?.message ?? err);
     await db.update(jobsTable)
@@ -107,6 +126,12 @@ async function processJob(
       })
       .where(eq(jobsTable.id, jobId))
       .catch(() => void 0);
+  } finally {
+    // Clean up uploaded file from disk and in-memory store
+    try {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    } catch { /* best-effort */ }
+    if (uploadId) uploadStore.delete(uploadId);
   }
 }
 
@@ -145,10 +170,24 @@ router.post("/jobs", async (req, res): Promise<void> => {
     domain, sourceLanguage, targetLanguage, translateTo, outputFormat,
   } = parsed.data;
 
-  // Resolve uploaded file path from uploadId (passed as extra field, not in spec)
+  // ── Credit pre-flight check ──────────────────────────────────────────────
+  const rate = RATES[type] ?? 5;
+  const estimatedCredits = Number(inputDurationMinutes) * rate;
+  const wallet = await getOrCreateWallet();
+  if (Number(wallet.balance) < estimatedCredits) {
+    res.status(402).json({
+      error: "Insufficient credits",
+      required: estimatedCredits,
+      available: Number(wallet.balance),
+    });
+    return;
+  }
+
+  // Resolve uploaded file from uploadId
   const uploadId = (req.body as any).uploadId as string | undefined;
   const uploadEntry = uploadId ? uploadStore.get(uploadId) : undefined;
   const filePath = uploadEntry?.filePath ?? null;
+  const originalFilename = uploadEntry?.originalName ?? inputFilename;
 
   const [job] = await db.insert(jobsTable).values({
     type,
@@ -167,29 +206,36 @@ router.post("/jobs", async (req, res): Promise<void> => {
 
   res.status(201).json(formatJob(job));
 
-  // Fire-and-forget real processing (or simulation if no file uploaded)
+  // Fire-and-forget processing
   if (filePath) {
-    void processJob(job.id, type, filePath, sourceLanguage ?? "auto", Number(inputDurationMinutes));
+    void processJob(
+      job.id, type, filePath, uploadId ?? null,
+      sourceLanguage ?? "auto", Number(inputDurationMinutes), originalFilename,
+    );
   } else {
-    // Fallback simulation when no file was uploaded (dev/demo)
+    // Fallback simulation (no file uploaded — dev/demo mode only)
     setTimeout(() => {
       void (async () => {
         try {
           await db.update(jobsTable)
             .set({ status: "processing", progressPercent: 30 })
             .where(eq(jobsTable.id, job.id));
-          setTimeout(() => {
-            void (async () => {
-              try {
-                const rate = RATES[type] ?? 5;
-                const creditsUsed = Number(inputDurationMinutes) * rate;
-                await db.update(jobsTable)
-                  .set({ status: "completed", progressPercent: 100, creditsUsed: String(creditsUsed), completedAt: new Date() })
-                  .where(eq(jobsTable.id, job.id));
-              } catch (_e) { /* silent */ }
-            })();
-          }, 6000);
-        } catch (_e) { /* silent */ }
+
+          await new Promise(r => setTimeout(r, 6000));
+
+          const creditsUsed = Number(inputDurationMinutes) * rate;
+          await db.update(jobsTable)
+            .set({ status: "completed", progressPercent: 100, creditsUsed: String(creditsUsed), completedAt: new Date() })
+            .where(eq(jobsTable.id, job.id));
+
+          await deductCredits(creditsUsed, job.id, `${type} — ${inputFilename} (simulated)`);
+        } catch (err: any) {
+          console.error(`[jobs] simulation ${job.id} failed:`, err?.message ?? err);
+          await db.update(jobsTable)
+            .set({ status: "failed", errorMessage: "Simulation failed", completedAt: new Date() })
+            .where(eq(jobsTable.id, job.id))
+            .catch(() => void 0);
+        }
       })();
     }, 1500);
   }
@@ -215,8 +261,7 @@ router.get("/jobs/:id/segments", async (req, res): Promise<void> => {
   if (!job.outputData) { res.status(404).json({ error: "No output data available" }); return; }
 
   try {
-    const parsed = JSON.parse(job.outputData);
-    res.json(parsed);
+    res.json(JSON.parse(job.outputData));
   } catch {
     res.status(500).json({ error: "Failed to parse output data" });
   }

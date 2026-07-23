@@ -113,7 +113,6 @@ async function deepgramTranscript(
     smart_format: true,
     utterances: true,
     ...(langCode ? { language: langCode } : { detect_language: true }),
-    encoding: mimeType as any,
   });
 
   const result = (response as any).result ?? (response as any);
@@ -146,7 +145,6 @@ async function deepgramSubtitles(
     smart_format: true,
     utterances: true,
     ...(langCode ? { language: langCode } : { detect_language: true }),
-    encoding: mimeType as any,
   });
 
   const result = (response as any).result ?? (response as any);

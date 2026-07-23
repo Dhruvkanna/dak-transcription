@@ -70,6 +70,27 @@ function toVttTranscript(blocks: TranscriptBlock[]): string {
   return out;
 }
 
+function toWordTranscript(blocks: TranscriptBlock[], title: string): string {
+  const rows = blocks.map(b =>
+    `<tr><td style="padding:6px 10px;border:1px solid #ccc;font-family:monospace;font-size:12px;white-space:nowrap;vertical-align:top">${b.timestamp}</td>` +
+    `<td style="padding:6px 10px;border:1px solid #ccc;font-size:12px;font-weight:bold;white-space:nowrap;vertical-align:top">${b.speaker}</td>` +
+    `<td style="padding:6px 10px;border:1px solid #ccc;font-size:13px;vertical-align:top">${b.text}</td></tr>`
+  ).join('');
+  return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8"><title>${title}</title></head>
+<body style="font-family:Calibri,sans-serif">
+<h2 style="margin-bottom:12px">${title}</h2>
+<table style="border-collapse:collapse;width:100%">
+<thead><tr style="background:#f0f0f0">
+<th style="padding:6px 10px;border:1px solid #ccc;text-align:left">Time</th>
+<th style="padding:6px 10px;border:1px solid #ccc;text-align:left">Speaker</th>
+<th style="padding:6px 10px;border:1px solid #ccc;text-align:left">Transcript</th>
+</tr></thead>
+<tbody>${rows}</tbody>
+</table>
+</body></html>`;
+}
+
 // ─── Speaker badge ─────────────────────────────────────────────────────────────
 
 const SPEAKER_COLORS: Record<string, string> = {
@@ -260,6 +281,7 @@ export function TranscriptEditor({ job, initialBlocks }: TranscriptEditorProps) 
               {[
                 { label: 'Plain Text (.txt)', fn: () => downloadText(toPlainText(blocks), `${job.jobName ?? 'transcript'}.txt`) },
                 { label: 'WebVTT (.vtt)',     fn: () => downloadText(toVttTranscript(blocks), `${job.jobName ?? 'transcript'}.vtt`) },
+                { label: 'Word (.doc)',        fn: () => downloadText(toWordTranscript(blocks, job.jobName ?? 'transcript'), `${job.jobName ?? 'transcript'}.doc`) },
               ].map(({ label, fn }) => (
                 <button
                   key={label}
