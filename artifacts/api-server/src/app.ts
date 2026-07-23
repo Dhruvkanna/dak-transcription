@@ -51,4 +51,10 @@ if (fs.existsSync(frontendDist)) {
   logger.info({ frontendDist }, "Serving frontend static files");
 }
 
+// ── Global JSON error handler ─────────────────────────────────────────────────
+app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  logger.error(err, "Unhandled error");
+  res.status(500).json({ error: err.message ?? "Internal server error" });
+});
+
 export default app;
