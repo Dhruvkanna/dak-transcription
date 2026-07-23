@@ -160,7 +160,7 @@ export default function Login() {
           <p className="text-center text-sm text-foreground-4 mt-6">
             New here?{' '}
             <Link href="/register" className="text-foreground font-semibold underline underline-offset-4">
-              Create an account →
+              Register →
             </Link>
           </p>
         </div>
