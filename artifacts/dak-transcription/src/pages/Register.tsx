@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { Link } from 'wouter';
+import { useTheme } from '@/components/theme-provider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { AlertTriangle, CheckCircle2, Eye, EyeOff, Mic, Subtitles, Captions, AudioLines } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Eye, EyeOff, Mic, Subtitles, Captions, AudioLines, Sun, Moon } from 'lucide-react';
 
 const FEATURES = [
   { icon: Mic,        label: 'AI Transcription',  desc: 'Speaker-labelled transcripts in minutes' },
@@ -14,6 +15,7 @@ const FEATURES = [
 
 export default function Register() {
   const BASE = import.meta.env.BASE_URL;
+  const { theme, toggleTheme } = useTheme();
 
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
@@ -95,7 +97,16 @@ export default function Register() {
       </div>
 
       {/* ── Right panel — form ────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col items-center justify-center p-8 bg-background">
+      <div className="flex-1 flex flex-col items-center justify-center p-8 bg-background relative">
+        {/* Theme toggle */}
+        <button
+          onClick={toggleTheme}
+          className="absolute top-5 right-5 p-2 rounded-full text-foreground-3 hover:text-foreground hover:bg-background-2 transition-colors"
+          aria-label="Toggle theme"
+        >
+          {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+        </button>
+
         {/* Mobile logo */}
         <div className="lg:hidden flex items-center gap-2 mb-10">
           <div className="w-9 h-9 bg-primary text-primary-foreground rounded-lg flex items-center justify-center font-serif font-bold text-lg">
